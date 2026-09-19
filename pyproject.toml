@@ -3,6 +3,8 @@ name = "lnbits-pocketmoney"
 version = "0.1.0"
 requires-python = ">=3.10,<3.13"
 description = "PocketMoney recurring allowances and scheduled disbursements for LNbits."
+readme = "README.md"
+license = { text = "MIT" }
 authors = [{ name = "Hakuna", email = "hakuna@tunnelsats.com" }]
 urls = { Repository = "https://github.com/TrezorHannes/pocketmoney" }
 

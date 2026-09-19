@@ -46,6 +46,7 @@ jobs:
 
       - name: Symlink PocketMoney into LNbits Extensions
         run: |
+          mkdir -p "$GITHUB_WORKSPACE/lnbits/lnbits/extensions"
           ln -s "$GITHUB_WORKSPACE/pocketmoney" "$GITHUB_WORKSPACE/lnbits/lnbits/extensions/pocketmoney"
 
       - name: Run Ruff Linter
