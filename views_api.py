@@ -271,13 +271,14 @@ async def api_test_telegram(
         "🤖 <b>PocketMoney Extension:</b> Telegram Alert Test\n"
         f"Connected successfully for wallet <code>{wallet.wallet.name}</code>!"
     )
-    success = await send_telegram_alert(data.telegram_bot_token, data.telegram_chat_id, msg)
+    success, error_detail = await send_telegram_alert(data.telegram_bot_token, data.telegram_chat_id, msg)
     if not success:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail="Failed to send Telegram message. Please check your bot token and chat ID.",
+            detail=f"Telegram delivery failed: {error_detail}",
         )
     return {"success": True, "message": "Telegram message delivered successfully!"}
+
 
 
 # ---------------------------------------------------------------------------
