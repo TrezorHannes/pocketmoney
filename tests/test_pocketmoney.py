@@ -78,6 +78,10 @@ async def test_e2e_plan_execution():
     await migrate_databases()
     async with db.connect() as conn:
         await m001_initial(conn)
+        try:
+            await m002_add_plan_is_running(conn)
+        except Exception:
+            pass  # Column may already exist from a prior test run
 
     user = await create_user_account()
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Test")
@@ -165,6 +169,10 @@ async def test_partial_failure_status():
     await migrate_databases()
     async with db.connect() as conn:
         await m001_initial(conn)
+        try:
+            await m002_add_plan_is_running(conn)
+        except Exception:
+            pass  # Column may already exist from a prior test run
 
     user = await create_user_account()
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Partial Test")
