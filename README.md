@@ -50,21 +50,21 @@
 
 ```mermaid
 graph TD
-    Trigger[Trigger: Scheduler / Webhook / Pay Now] --> Concurrency[Acquire Plan Concurrency Lock]
-    Concurrency --> JIT[JIT Currency Conversion via fiat_amount_as_satoshis]
-    JIT --> Slippage[Check Max Sat Limits & Budget Ceiling]
-    Slippage -->|Exceeded| SkipSlippage[Skip: Alert Telegram]
-    Slippage -->|Within Limits| Balance[Check Funding Wallet Balance]
-    Balance -->|Insufficient| SkipBalance[Skip: Alert Telegram & Record Audit Log]
-    Balance -->|Sufficient| Dispatch[Universal Recipient Dispatcher]
+    Trigger["Trigger: Scheduler / Webhook / Pay Now"] --> Concurrency["Acquire Plan Concurrency Lock"]
+    Concurrency --> JIT["JIT Currency Conversion via fiat_amount_as_satoshis"]
+    JIT --> Slippage["Check Max Sat Limits & Budget Ceiling"]
+    Slippage -->|"Exceeded"| SkipSlippage["Skip: Alert Telegram"]
+    Slippage -->|"Within Limits"| Balance["Check Funding Wallet Balance"]
+    Balance -->|"Insufficient"| SkipBalance["Skip: Alert Telegram & Record Audit Log"]
+    Balance -->|"Sufficient"| Dispatch["Universal Recipient Dispatcher"]
 
-    Dispatch -->|Internal Wallet ID| Internal[Core: create_invoice + pay_invoice<br/>0 Network Fees]
-    Dispatch -->|user@domain / LNURL| External[Core: get_pr_from_lnurl + pay_invoice]
+    Dispatch -->|"Internal Wallet ID"| Internal["Core: create_invoice + pay_invoice<br/>0 Network Fees"]
+    Dispatch -->|"Lightning Address / LNURL"| External["Core: get_pr_from_lnurl + pay_invoice"]
 
-    Internal --> Audit[Record in ext_pocketmoney.executions]
+    Internal --> Audit["Record in ext_pocketmoney.executions"]
     External --> Audit
-    Audit --> NextRun[Advance next_run_at Timestamp]
-    NextRun --> Release[Release Plan Concurrency Lock]
+    Audit --> NextRun["Advance next_run_at Timestamp"]
+    NextRun --> Release["Release Plan Concurrency Lock"]
 ```
 
 ---
