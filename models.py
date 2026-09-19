@@ -24,6 +24,7 @@ class RecipientType(str, Enum):
 
 class ExecutionStatus(str, Enum):
     SUCCESS = "success"
+    PARTIAL = "partial"  # Some recipients paid, some failed — do NOT re-run carelessly
     FAILED = "failed"
     SKIPPED_INSUFFICIENT_FUNDS = "skipped_insufficient_funds"
     SKIPPED_SLIPPAGE = "skipped_slippage"

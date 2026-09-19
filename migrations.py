@@ -74,3 +74,20 @@ async def m001_initial(db: Connection):
         );
         """
     )
+
+
+async def m002_add_plan_is_running(db: Connection):
+    """
+    Add is_running boolean to plans table.
+
+    Provides a DB-level atomic claim guard for multi-process / multi-worker
+    LNbits deployments. Complements the in-process asyncio.Lock in services.py.
+    On claim: UPDATE plans SET is_running = TRUE WHERE id = ? AND is_running = FALSE
+    A rowcount of 0 means another worker claimed it first.
+    """
+    await db.execute(
+        f"""
+        ALTER TABLE {db.references_schema}plans
+        ADD COLUMN is_running BOOLEAN DEFAULT FALSE;
+        """
+    )

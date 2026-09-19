@@ -6,8 +6,15 @@ from lnbits.commands import migrate_databases
 from lnbits.core.crud import create_wallet, get_wallet
 from lnbits.core.services import create_user_account
 from lnbits.core.services.payments import update_wallet_balance
-from pocketmoney.crud import create_plan, db, get_executions, get_plan
-from pocketmoney.migrations import m001_initial
+from pocketmoney.crud import (
+    claim_plan_running,
+    create_plan,
+    db,
+    get_executions,
+    get_plan,
+    release_plan_running,
+)
+from pocketmoney.migrations import m001_initial, m002_add_plan_is_running
 from pocketmoney.models import (
     CadenceType,
     ExecutionStatus,
@@ -32,11 +39,9 @@ def test_parse_cron_field():
 
 
 def test_calculate_next_run_weekly():
-    # Friday 2026-09-18 10:00 UTC
     ref_time = datetime(2026, 9, 18, 10, 0, 0, tzinfo=timezone.utc)
-    # Target: every Friday at 09:00 (since 10:00 is past 09:00, next should be next Friday Sep 25)
     next_run = calculate_next_run("weekly", "0 9 * * 5", "UTC", from_time=ref_time)
-    assert next_run.weekday() == 4  # Friday
+    assert next_run.weekday() == 4
     assert next_run.hour == 9
     assert next_run.minute == 0
     assert next_run.day == 25
@@ -44,7 +49,6 @@ def test_calculate_next_run_weekly():
 
 def test_calculate_next_run_daily():
     ref_time = datetime(2026, 9, 18, 8, 0, 0, tzinfo=timezone.utc)
-    # Target: daily at 09:00 (should be today at 09:00)
     next_run = calculate_next_run("daily", "0 9 * * *", "UTC", from_time=ref_time)
     assert next_run.day == 18
     assert next_run.hour == 9
@@ -71,23 +75,23 @@ def test_plan_create_model():
 
 @pytest.mark.anyio
 async def test_e2e_plan_execution():
-    # Ensure database is migrated
     await migrate_databases()
     async with db.connect() as conn:
         await m001_initial(conn)
+        try:
+            await m002_add_plan_is_running(conn)
+        except Exception:
+            pass  # Column may already exist from a prior test run
 
-    # Create user and wallets
     user = await create_user_account()
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Test")
     child1 = await create_wallet(user_id=user.id, wallet_name="Bob Test")
     child2 = await create_wallet(user_id=user.id, wallet_name="Alice Test")
 
-    # Fund parent wallet with 30,000 sats
     await update_wallet_balance(parent, 30000, memo="Deposit")
     p_check = await get_wallet(parent.id)
     assert p_check and p_check.balance == 30000
 
-    # Create plan (Bob: 3000 sats, Alice: 4000 sats)
     plan_data = PlanCreate(
         name="Test Kids Allowance",
         cadence_type=CadenceType.WEEKLY,
@@ -100,19 +104,16 @@ async def test_e2e_plan_execution():
     next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(parent.id, plan_data, next_run)
 
-    # Dry-run simulation
     sim = await simulate_plan(plan.id, parent.id)
     assert sim.can_execute is True
     assert sim.total_sats == 7000
     assert sim.balance_after_sats == 23000
 
-    # Execute plan
     execution = await execute_plan(plan.id, triggered_by="manual")
     assert execution.status == ExecutionStatus.SUCCESS.value
     assert execution.total_sats == 7000
     assert len(execution.details) == 2
 
-    # Verify wallet balances after execution
     parent_after = await get_wallet(parent.id)
     child1_after = await get_wallet(child1.id)
     child2_after = await get_wallet(child2.id)
@@ -121,7 +122,6 @@ async def test_e2e_plan_execution():
     assert child1_after and child1_after.balance == 3000
     assert child2_after and child2_after.balance == 4000
 
-    # Verify audit logs & plan next_run_at
     executions = await get_executions(parent.id, plan_id=plan.id)
     assert len(executions) >= 1
     assert executions[0].id == execution.id
@@ -130,7 +130,6 @@ async def test_e2e_plan_execution():
     assert updated_plan and updated_plan.last_run_at is not None
     assert updated_plan.next_run_at is not None
 
-    # Test fail-closed behavior on insufficient funds
     large_plan_data = PlanCreate(
         name="Excessive Plan",
         cadence_type=CadenceType.MONTHLY,
@@ -146,11 +145,9 @@ async def test_e2e_plan_execution():
     assert failed_exec.status == ExecutionStatus.SKIPPED_INSUFFICIENT_FUNDS.value
     assert failed_exec.total_sats == 0
 
-    # Parent balance unchanged
     parent_untouched = await get_wallet(parent.id)
     assert parent_untouched and parent_untouched.balance == 23000
 
-    # Verify daemon advances next_run_at on insufficient funds skip to prevent 30s re-trigger loops
     past_due = datetime.now(timezone.utc) - timedelta(minutes=5)
     await db.execute(
         f"UPDATE {db.references_schema}plans SET next_run_at = :past_due WHERE id = :id",
@@ -162,4 +159,108 @@ async def test_e2e_plan_execution():
     assert plan_after_daemon and plan_after_daemon.next_run_at > past_due
 
 
+@pytest.mark.anyio
+async def test_partial_failure_status():
+    """
+    When one recipient succeeds and another fails (e.g. deleted wallet),
+    the execution status must be PARTIAL — not FAILED — so the user knows
+    which payments went through and does not accidentally double-pay on retry.
+    """
+    await migrate_databases()
+    async with db.connect() as conn:
+        await m001_initial(conn)
+        try:
+            await m002_add_plan_is_running(conn)
+        except Exception:
+            pass  # Column may already exist from a prior test run
 
+    user = await create_user_account()
+    parent = await create_wallet(user_id=user.id, wallet_name="Parent Partial Test")
+    good_child = await create_wallet(user_id=user.id, wallet_name="Good Child")
+
+    await update_wallet_balance(parent, 10000, memo="Deposit")
+
+    # Use a non-existent wallet ID as the bad recipient — payment will fail
+    bad_recipient = "nonexistent-wallet-id-that-does-not-exist"
+
+    plan_data = PlanCreate(
+        name="Partial Failure Plan",
+        cadence_type=CadenceType.WEEKLY,
+        cron_expression="0 9 * * 5",
+        items=[
+            ItemCreate(label="GoodKid", recipient=good_child.id, amount=Decimal("1000"), currency="SAT"),
+            ItemCreate(label="BadKid", recipient=bad_recipient, amount=Decimal("500"), currency="SAT"),
+        ],
+    )
+    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    plan = await create_plan(parent.id, plan_data, next_run)
+
+    execution = await execute_plan(plan.id, triggered_by="manual")
+
+    # Status must be PARTIAL, not FAILED
+    assert execution.status == ExecutionStatus.PARTIAL.value, (
+        f"Expected PARTIAL but got {execution.status}. "
+        "A misleading FAILED status could cause accidental double-pays on retry."
+    )
+
+    # Per-item detail records must reflect individual outcomes
+    assert len(execution.details) == 2
+    good_detail = next(d for d in execution.details if d["label"] == "GoodKid")
+    bad_detail = next(d for d in execution.details if d["label"] == "BadKid")
+    assert good_detail["status"] == "success"
+    assert bad_detail["status"] == "failed"
+
+    # error_message must warn about the partial nature
+    assert execution.error_message is not None
+    assert "Partial failure" in execution.error_message
+    assert "GoodKid" in execution.error_message
+    assert "BadKid" in execution.error_message
+    assert "do not re-run all recipients" in execution.error_message
+
+    # GoodKid's wallet received the payment
+    good_after = await get_wallet(good_child.id)
+    assert good_after and good_after.balance == 1000
+
+
+@pytest.mark.anyio
+async def test_db_claim_guard():
+    """
+    claim_plan_running atomically claims the is_running flag.
+    A second concurrent claim must return False. After release, a new claim succeeds.
+    """
+    await migrate_databases()
+    async with db.connect() as conn:
+        await m001_initial(conn)
+        try:
+            await m002_add_plan_is_running(conn)
+        except Exception:
+            pass  # Column may already exist from a prior test run
+
+    user = await create_user_account()
+    wallet = await create_wallet(user_id=user.id, wallet_name="Claim Test")
+    plan_data = PlanCreate(
+        name="Claim Guard Test Plan",
+        cadence_type=CadenceType.WEEKLY,
+        cron_expression="0 9 * * 5",
+        items=[],
+    )
+    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    plan = await create_plan(wallet.id, plan_data, next_run)
+
+    # First claim should succeed
+    claimed_first = await claim_plan_running(plan.id)
+    assert claimed_first is True, "First claim must succeed"
+
+    # Second claim (simulating a concurrent worker) must fail
+    claimed_second = await claim_plan_running(plan.id)
+    assert claimed_second is False, "Concurrent claim must be rejected — plan is already running"
+
+    # Release the claim
+    await release_plan_running(plan.id)
+
+    # After release, a new claim must succeed
+    claimed_after_release = await claim_plan_running(plan.id)
+    assert claimed_after_release is True, "Claim after release must succeed"
+
+    # Cleanup
+    await release_plan_running(plan.id)
