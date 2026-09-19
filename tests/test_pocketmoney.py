@@ -53,9 +53,9 @@ def test_plan_create_model():
         cron_expression="0 9 * * 5",
         low_balance_threshold=50000,
         items=[
-            ItemCreate(label="Alisa", recipient="alisa@getalby.com", amount=Decimal("4.00"), currency="EUR"),
-            ItemCreate(label="Felix", recipient="internal_wallet_1", amount=Decimal("1000"), currency="SAT"),
-            ItemCreate(label="Valentina", recipient="lnurl1dp68gurn8ghj7mr0vd6...", amount=Decimal("4.00"), currency="EUR"),
+            ItemCreate(label="Alice", recipient="alice@getalby.com", amount=Decimal("4.00"), currency="EUR"),
+            ItemCreate(label="Bob", recipient="internal_wallet_1", amount=Decimal("1000"), currency="SAT"),
+            ItemCreate(label="Charlie", recipient="lnurl1dp68gurn8ghj7mr0vd6...", amount=Decimal("4.00"), currency="EUR"),
         ],
     )
     assert plan_data.name == "Kids Pocket Money"
@@ -73,22 +73,22 @@ async def test_e2e_plan_execution():
     # Create user and wallets
     user = await create_user_account()
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Test")
-    child1 = await create_wallet(user_id=user.id, wallet_name="Felix Test")
-    child2 = await create_wallet(user_id=user.id, wallet_name="Alisa Test")
+    child1 = await create_wallet(user_id=user.id, wallet_name="Bob Test")
+    child2 = await create_wallet(user_id=user.id, wallet_name="Alice Test")
 
     # Fund parent wallet with 30,000 sats
     await update_wallet_balance(parent, 30000, memo="Deposit")
     p_check = await get_wallet(parent.id)
     assert p_check and p_check.balance == 30000
 
-    # Create plan (Felix: 3000 sats, Alisa: 4000 sats)
+    # Create plan (Bob: 3000 sats, Alice: 4000 sats)
     plan_data = PlanCreate(
         name="Test Kids Allowance",
         cadence_type=CadenceType.WEEKLY,
         cron_expression="0 9 * * 5",
         items=[
-            ItemCreate(label="Felix", recipient=child1.id, amount=Decimal("3000"), currency="SAT"),
-            ItemCreate(label="Alisa", recipient=child2.id, amount=Decimal("4000"), currency="SAT"),
+            ItemCreate(label="Bob", recipient=child1.id, amount=Decimal("3000"), currency="SAT"),
+            ItemCreate(label="Alice", recipient=child2.id, amount=Decimal("4000"), currency="SAT"),
         ],
     )
     next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)

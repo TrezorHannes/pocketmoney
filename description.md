@@ -3,7 +3,7 @@
 PocketMoney automates recurring pocket money, allowances, contractor payroll, and vendor bills from your LNbits wallets.
 
 ### Key Features
-- **Grouped Disbursement Plans**: Bundle multiple recipients (e.g. Alisa, Felix, Valentina) into a single recurring weekly or monthly schedule.
+- **Grouped Disbursement Plans**: Bundle multiple recipients (e.g. Alice, Bob, Charlie) into a single recurring weekly or monthly schedule.
 - **Universal Recipient Support**: Send to internal LNbits wallets (instant zero-fee ledger transfers without needing recipient invoice keys) or external Lightning Addresses (`user@domain.com`) and LNURL-pay endpoints.
 - **Multi-Currency**: Denominate each allowance in satoshis or any fiat currency allowed by the server admin (EUR, USD, GBP, etc.) with just-in-time exchange rate conversion.
 - **Dual-Mode Scheduling**: Friendly presets (Daily, Weekly with weekday picker, Monthly) and full Cron expressions with live Next Run previews.

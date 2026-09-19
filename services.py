@@ -156,12 +156,15 @@ async def send_telegram_alert(
     if not bot_token or not chat_id:
         return False, "Bot token or chat ID is missing."
 
+    clean_token = str(bot_token).strip()
+    clean_chat = str(chat_id).strip()
+
     try:
-        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{clean_token}/sendMessage"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 url,
-                json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
+                json={"chat_id": clean_chat, "text": message, "parse_mode": "HTML"},
             )
             if resp.status_code == 200:
                 return True, ""

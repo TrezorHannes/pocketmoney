@@ -36,7 +36,7 @@ class TriggerType(str, Enum):
 
 
 class ItemCreate(BaseModel):
-    label: str = Field(..., description="Recipient label (e.g. Alisa, Hetzner VPS)")
+    label: str = Field(..., description="Recipient label (e.g. Alice, Hetzner VPS)")
     recipient: str = Field(..., description="Wallet ID, Lightning Address, or LNURL-pay")
     amount: Decimal = Field(..., gt=0, description="Amount in specified currency")
     currency: str = Field(default="sat", description="Currency ticker (sat, EUR, USD, etc.)")

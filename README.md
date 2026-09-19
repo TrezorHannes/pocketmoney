@@ -22,7 +22,7 @@
 **PocketMoney** is an open-source [LNbits](https://github.com/lnbits/lnbits) extension that automates recurring payouts in any currency (sats, EUR, USD, etc.) to internal child wallets, external Lightning Addresses, or LNURL-pay endpoints.
 
 ### Primary Use Cases
-- 👨‍👩‍👧‍👦 **Weekly Family Allowance**: Give \$4, 4,000 sats, or 4€ every Friday morning at 09:00 to child wallets (e.g. Alisa, Felix, Valentina) with zero routing fees.
+- 👨‍👩‍👧‍👦 **Weekly Family Allowance**: Give \$4, 4,000 sats, or 4€ every Friday morning at 09:00 to child wallets (e.g. Alice, Bob, Charlie) with zero routing fees.
 - 🖥️ **Recurring Server & SaaS Bills**: Pay your monthly VPS hosting bills automatically via Lightning Address on the 1st of every month.
 - 🌍 **Global Contractor Payroll**: Stream monthly salaries across the globe to contractor Lightning Addresses with fail-closed slippage safety.
 

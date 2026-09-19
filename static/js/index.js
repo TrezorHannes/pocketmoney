@@ -73,14 +73,30 @@ window.app = Vue.createApp({
       },
       savingSettings: false,
       testingTelegram: false,
+      g: (typeof window !== 'undefined' && window.g) ? window.g : { user: null },
     }
   },
 
   computed: {
     activeWalletAdminKey() {
-      if (!this.selectedWallet || !this.g.user || !this.g.user.wallets) return null
-      const w = this.g.user.wallets.find(x => x.id === this.selectedWallet)
+      const user = (this.g && this.g.user) || (typeof window !== 'undefined' && window.g && window.g.user)
+      if (!this.selectedWallet || !user || !user.wallets) return null
+      const w = user.wallets.find(x => x.id === this.selectedWallet)
       return w ? w.adminkey : null
+    },
+
+    userWallets() {
+      const user = (this.g && this.g.user) || (typeof window !== 'undefined' && window.g && window.g.user)
+      return (user && user.wallets) || []
+    },
+
+    internalWalletOptions() {
+      return this.userWallets
+        .filter(w => w.id !== this.selectedWallet)
+        .map(w => ({
+          label: `${w.name} (${(w.balance_msat ? Math.floor(w.balance_msat / 1000) : 0).toLocaleString()} sats)`,
+          value: w.id
+        }))
     },
   },
 
@@ -221,15 +237,18 @@ window.app = Vue.createApp({
           max_sat_limit: plan.max_sat_limit,
           low_balance_threshold: plan.low_balance_threshold || 0,
           telegram_chat_id: plan.telegram_chat_id,
-          items: (plan.items || []).map(i => ({
-            label: i.label,
-            recipient: i.recipient,
-            recipientMode: 'manual',
-            amount: i.amount,
-            currency: i.currency,
-            memo: i.memo || '',
-            max_sat_limit: i.max_sat_limit,
-          })),
+          items: (plan.items || []).map(i => {
+            const isInternal = (this.g.user && this.g.user.wallets || []).some(w => w.id === i.recipient)
+            return {
+              label: i.label,
+              recipient: i.recipient,
+              recipientMode: isInternal ? 'wallet' : 'manual',
+              amount: i.amount,
+              currency: i.currency,
+              memo: i.memo || '',
+              max_sat_limit: i.max_sat_limit,
+            }
+          }),
         }
         this.planDialog.advancedCron = plan.cadence_type === 'cron'
       } else {
@@ -244,7 +263,7 @@ window.app = Vue.createApp({
           low_balance_threshold: 0,
           telegram_chat_id: null,
           items: [
-            { label: '', recipient: '', recipientMode: 'manual', amount: 4, currency: 'EUR', memo: '' },
+            { label: '', recipient: '', recipientMode: 'wallet', amount: 4, currency: 'EUR', memo: '' },
           ],
         }
         this.planDialog.advancedCron = false
@@ -259,12 +278,24 @@ window.app = Vue.createApp({
       this.planDialog.data.items.push({
         label: '',
         recipient: '',
-        recipientMode: 'manual',
+        recipientMode: 'wallet',
         amount: 1000,
         currency: 'SAT',
         memo: '',
         max_sat_limit: null,
       })
+    },
+
+    onRecipientModeChange(item) {
+      item.recipient = ''
+    },
+
+    onInternalWalletSelected(item, walletId) {
+      if (!walletId || !this.g.user || !this.g.user.wallets) return
+      const w = this.g.user.wallets.find(x => x.id === walletId)
+      if (w && (!item.label || item.label.trim() === '')) {
+        item.label = w.name
+      }
     },
 
     removeRecipientRow(idx) {
