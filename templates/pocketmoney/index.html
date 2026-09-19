@@ -42,6 +42,53 @@
   color: #ffffff !important;
   background: rgba(255, 255, 255, 0.05) !important;
 }
+.pm-info-text {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.pm-text-body {
+  color: #1a1a1a;
+}
+.body--dark .pm-text-body {
+  color: #f0f0f0;
+}
+.pm-step-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  margin-bottom: 8px;
+}
+.body--dark .pm-step-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+.pm-step-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.pm-code-badge {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+}
+.body--dark .pm-code-badge {
+  background: rgba(255, 255, 255, 0.12);
+  color: #90caf9;
+}
+.pm-code-block {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.body--dark .pm-code-block {
+  background: rgba(255, 255, 255, 0.07);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
 </style>
 {% raw %}
 <div class="row q-col-gutter-md">
@@ -407,17 +454,17 @@
             header-class="text-weight-bold"
           >
             <q-card>
-              <q-card-section class="q-pt-sm text-caption">
-                <p class="text-body2" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-8'">
+              <q-card-section class="q-pt-sm pm-info-text pm-text-body">
+                <p class="q-mb-md pm-text-body">
                   PocketMoney automates scheduled Lightning disbursements for weekly allowances, contractor payroll, and recurring server bills.
                 </p>
-                <div class="text-subtitle2 text-weight-bold q-mb-xs">Core Highlights</div>
-                <ul class="q-pl-md q-my-none" style="line-height: 1.6;">
-                  <li><b>⚡ Universal Recipient</b>: Accepts internal LNbits Wallet IDs, Lightning Addresses (<code>alice@getalby.com</code>), and LNURL-pay.</li>
-                  <li><b>🔄 Zero Routing Fees Internally</b>: Internal peer transfers settle off-chain instantaneously with 0 routing fees without needing child invoice keys.</li>
-                  <li><b>🛡️ Fail-Closed Safety</b>: If the funding wallet balance is insufficient, payments fail safely with an alert instead of executing partial debits.</li>
-                  <li><b>💱 Multi-Currency JIT</b>: Send in EUR, USD, GBP, or sats with just-in-time exchange rate conversion at execution time.</li>
-                  <li><b>🤖 Proactive Alerts</b>: Instant Telegram delivery for completions, slippage skips, and low-balance warnings.</li>
+                <div class="text-subtitle1 text-weight-bold q-mb-xs" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">Core Highlights</div>
+                <ul class="q-pl-md q-my-none pm-text-body" style="line-height: 1.7;">
+                  <li class="q-mb-xs"><b>⚡ Universal Recipient</b>: Accepts internal LNbits Wallet IDs, Lightning Addresses (<code class="pm-code-badge">alice@getalby.com</code>), and LNURL-pay.</li>
+                  <li class="q-mb-xs"><b>🔄 Zero Routing Fees Internally</b>: Internal peer transfers settle off-chain instantaneously with 0 routing fees without needing child invoice keys.</li>
+                  <li class="q-mb-xs"><b>🛡️ Fail-Closed Safety</b>: If the funding wallet balance is insufficient, payments fail safely with an alert instead of executing partial debits.</li>
+                  <li class="q-mb-xs"><b>💱 Multi-Currency JIT</b>: Send in EUR, USD, GBP, or sats with just-in-time exchange rate conversion at execution time.</li>
+                  <li class="q-mb-xs"><b>🤖 Proactive Alerts</b>: Instant Telegram delivery for completions, slippage skips, and low-balance warnings.</li>
                 </ul>
                 <div class="row items-center justify-between q-mt-md text-grey">
                   <span>Version: <b>v0.1.0</b></span>
@@ -438,44 +485,44 @@
             header-class="text-weight-bold"
           >
             <q-card>
-              <q-card-section class="q-pt-sm text-caption">
-                <div class="q-gutter-y-sm">
-                  <div>
-                    <div class="text-weight-bold text-primary">1. Select Funding Wallet</div>
-                    <div class="text-grey-7" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+              <q-card-section class="q-pt-sm pm-info-text pm-text-body">
+                <div class="q-gutter-y-xs">
+                  <div class="pm-step-card">
+                    <div class="pm-step-title text-primary" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">1. Select Funding Wallet</div>
+                    <div class="pm-text-body">
                       Use the <b>Funding Wallet</b> dropdown at the top right to choose which LNbits wallet will fund the scheduled payments.
                     </div>
                   </div>
 
-                  <div>
-                    <div class="text-weight-bold text-primary">2. Create a Disbursement Plan</div>
-                    <div class="text-grey-7" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+                  <div class="pm-step-card">
+                    <div class="pm-step-title text-primary" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">2. Create a Disbursement Plan</div>
+                    <div class="pm-text-body">
                       Click <b>+ New Plan</b>. Give the plan a name (e.g. <i>Kids Weekly Allowance</i>) and choose a recurrence schedule (Daily, Weekly, Monthly, or custom Cron).
                     </div>
                   </div>
 
-                  <div>
-                    <div class="text-weight-bold text-primary">3. Add Recipients</div>
-                    <div class="text-grey-7" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+                  <div class="pm-step-card">
+                    <div class="pm-step-title text-primary" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">3. Add Recipients</div>
+                    <div class="pm-text-body">
                       Add one or more recipients per plan:
                       <ul class="q-pl-md q-my-xs">
                         <li><b>👛 Internal Wallet</b>: Pick a child or peer wallet under your account. Zero routing fees and instant settlement.</li>
-                        <li><b>⚡ Lightning Address / LNURL</b>: Enter any <code>user@domain.com</code> or LNURL-pay string.</li>
+                        <li><b>⚡ Lightning Address / LNURL</b>: Enter any <code class="pm-code-badge">user@domain.com</code> or LNURL-pay string.</li>
                       </ul>
                       Choose the amount and currency (e.g. 5.00 EUR or 5,000 sats).
                     </div>
                   </div>
 
-                  <div>
-                    <div class="text-weight-bold text-primary">4. Budget Ceilings & Alerts</div>
-                    <div class="text-grey-7" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+                  <div class="pm-step-card">
+                    <div class="pm-step-title text-primary" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">4. Budget Ceilings & Alerts</div>
+                    <div class="pm-text-body">
                       Set an optional <b>Max Satoshis Limit</b> to guard against sudden Bitcoin price fluctuations when paying fiat amounts. Add a <b>Low Balance Alert</b> threshold to be warned before funds run out.
                     </div>
                   </div>
 
-                  <div>
-                    <div class="text-weight-bold text-primary">5. Triggers & Automations</div>
-                    <div class="text-grey-7" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+                  <div class="pm-step-card">
+                    <div class="pm-step-title text-primary" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">5. Triggers & Automations</div>
+                    <div class="pm-text-body">
                       Plans run automatically on schedule via LNbits background task. You can also:
                       <ul class="q-pl-md q-my-xs">
                         <li>Click <b>▶ Run Now</b> for immediate on-demand execution.</li>
@@ -485,9 +532,9 @@
                     </div>
                   </div>
 
-                  <div>
-                    <div class="text-weight-bold text-primary">6. Telegram Bot Notifications</div>
-                    <div class="text-grey-7" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+                  <div class="pm-step-card">
+                    <div class="pm-step-title text-primary" :class="$q.dark.isActive ? 'text-blue-3' : 'text-primary'">6. Telegram Bot Notifications</div>
+                    <div class="pm-text-body">
                       Open the <b>Settings & Alerts</b> tab to configure your Telegram bot token and chat room ID. Test your setup with the <i>Send Test Alert</i> button.
                     </div>
                   </div>
@@ -536,7 +583,7 @@
                         <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X GET {{ locationOrigin }}/pocketmoney/api/v1/plans -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X GET {{ locationOrigin }}/pocketmoney/api/v1/plans -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X GET ' + locationOrigin + '/pocketmoney/api/v1/plans -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -553,7 +600,7 @@
                         <div class="text-weight-bold q-mt-xs">Headers:</div>
                         <code>{"X-Api-Key": &lt;admin_key&gt;, "Content-Type": "application/json"}</code>
                         <div class="text-weight-bold q-mt-xs">Body Schema:</div>
-                        <pre class="q-pa-xs rounded-borders text-caption" style="background: rgba(0,0,0,0.1); margin: 0; font-size: 10px; overflow-x: auto;">{
+                        <pre class="q-pa-xs rounded-borders pm-code-block text-caption" style="margin: 0; font-size: 11px; overflow-x: auto;">{
   "name": "Kids Weekly Allowance",
   "cadence_type": "weekly",
   "cron_expression": "0 9 * * 5",
@@ -569,7 +616,7 @@
 }</pre>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}" -H "Content-Type: application/json" -d '{"name":"Kids Allowance","cadence_type":"weekly","cron_expression":"0 9 * * 5","items":[{"label":"Alice","recipient":"alice@getalby.com","recipient_type":"lnurl","amount":5,"currency":"EUR"}]}'</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}" -H "Content-Type: application/json" -d '{"name":"Kids Allowance","cadence_type":"weekly","cron_expression":"0 9 * * 5","items":[{"label":"Alice","recipient":"alice@getalby.com","recipient_type":"lnurl","amount":5,"currency":"EUR"}]}'</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/plans -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot; -H &quot;Content-Type: application/json&quot; -d \'{\&quot;name\&quot;:\&quot;Kids Allowance\&quot;,\&quot;cadence_type\&quot;:\&quot;weekly\&quot;,\&quot;cron_expression\&quot;:\&quot;0 9 * * 5\&quot;,\&quot;items\&quot;:[{\&quot;label\&quot;:\&quot;Alice\&quot;,\&quot;recipient\&quot;:\&quot;alice@getalby.com\&quot;,\&quot;recipient_type\&quot;:\&quot;lnurl\&quot;,\&quot;amount\&quot;:5,\&quot;currency\&quot;:\&quot;EUR\&quot;}]}\'')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -587,7 +634,7 @@
                         <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X GET {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt; -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X GET {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt; -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X GET ' + locationOrigin + '/pocketmoney/api/v1/plans/<plan_id> -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -605,7 +652,7 @@
                         <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X DELETE {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt; -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X DELETE {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt; -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X DELETE ' + locationOrigin + '/pocketmoney/api/v1/plans/<plan_id> -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -623,7 +670,7 @@
                         <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt;/run -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt;/run -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/plans/<plan_id>/run -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -641,7 +688,7 @@
                         <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt;/simulate -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt;/simulate -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/plans/<plan_id>/simulate -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -659,7 +706,7 @@
                         <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X GET "{{ locationOrigin }}/pocketmoney/api/v1/history?limit=50" -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X GET "{{ locationOrigin }}/pocketmoney/api/v1/history?limit=50" -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X GET &quot;' + locationOrigin + '/pocketmoney/api/v1/history?limit=50&quot; -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
@@ -674,12 +721,12 @@
                       <q-card-section class="text-caption q-pa-sm">
                         <div><code><span class="text-positive text-weight-bold">POST</span> /pocketmoney/api/v1/webhook/&lt;webhook_token&gt;</code></div>
                         <div class="text-weight-bold q-mt-xs text-warning">Headers: None (No API key required)</div>
-                        <div class="text-grey-7 q-my-xs" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-7'">
+                        <div class="q-my-xs pm-text-body">
                           Each plan generates a secret UUID token for headless triggers from Home Assistant, Cron, Zapier, or scripts.
                         </div>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders" style="word-break: break-all; background: rgba(0,0,0,0.1);">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/webhook/&lt;webhook_token&gt;</code>
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/webhook/&lt;webhook_token&gt;</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/webhook/<webhook_token>')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
