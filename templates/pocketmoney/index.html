@@ -49,6 +49,8 @@
           indicator-color="primary"
           align="left"
           narrow-indicator
+          mobile-arrows
+          outside-arrows
         >
           <q-tab name="plans" icon="schedule" label="Disbursement Plans">
             <q-badge v-if="plans.length" color="primary" floating>{{ plans.length }}</q-badge>
@@ -88,6 +90,7 @@
             row-key="id"
             :loading="loadingPlans"
             no-data-label="No disbursement plans found for this wallet. Create one to get started!"
+            :grid="$q.screen.lt.sm"
           >
             <!-- Active Toggle -->
             <template v-slot:body-cell-is_active="props">
@@ -282,36 +285,41 @@
             paid, or when your funding wallet balance falls below safety thresholds.
           </div>
 
-          <q-form @submit="saveSettings" class="q-gutter-y-md">
-            <q-input
-              filled
-              dense
-              v-model.trim="settingsForm.telegram_bot_token"
-              label="Telegram Bot Token"
-              hint="From @BotFather (e.g. 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)"
-            />
+          <q-form @submit="saveSettings" class="column q-gutter-y-md">
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-6">
+                <q-input
+                  filled
+                  dense
+                  v-model.trim="settingsForm.telegram_bot_token"
+                  label="Telegram Bot Token"
+                  hint="From @BotFather (e.g. 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)"
+                ></q-input>
+              </div>
+              <div class="col-12 col-md-6">
+                <q-input
+                  filled
+                  dense
+                  v-model.trim="settingsForm.telegram_chat_id"
+                  label="Telegram User / Group Chat ID"
+                  hint="Your Telegram chat ID or channel ID"
+                ></q-input>
+              </div>
+            </div>
 
-            <q-input
-              filled
-              dense
-              v-model.trim="settingsForm.telegram_chat_id"
-              label="Telegram User / Group Chat ID"
-              hint="Your Telegram chat ID or channel ID"
-            />
-
-            <div class="q-gutter-y-sm q-mt-md">
+            <div class="column q-gutter-y-sm q-mt-md">
               <q-toggle
                 v-model="settingsForm.notify_on_success"
                 label="Notify on successful allowance payments"
-              />
+              ></q-toggle>
               <q-toggle
                 v-model="settingsForm.notify_on_failure"
                 label="Notify on failed payment attempts"
-              />
+              ></q-toggle>
               <q-toggle
                 v-model="settingsForm.notify_on_low_balance"
                 label="Send warning when wallet balance is below threshold"
-              />
+              ></q-toggle>
             </div>
 
             <div class="row q-gutter-x-md q-mt-lg">
@@ -321,14 +329,14 @@
                 type="submit"
                 label="Save Settings"
                 :loading="savingSettings"
-              />
+              ></q-btn>
               <q-btn
                 flat
                 color="secondary"
                 label="Send Test Telegram Alert"
                 @click="testTelegram"
                 :loading="testingTelegram"
-              />
+              ></q-btn>
             </div>
           </q-form>
         </q-card-section>
@@ -346,7 +354,7 @@
         </p>
         <q-separator class="q-my-sm"></q-separator>
         <div class="text-subtitle2 text-weight-bold q-mb-xs">Key Highlights</div>
-        <ul class="q-pl-md text-caption text-grey-8">
+        <ul class="q-pl-md text-caption" :class="$q.dark.isActive ? 'text-grey-4' : 'text-grey-8'">
           <li><b>Universal Recipient</b>: Accepts internal LNbits Wallet IDs, Lightning Addresses (<code>alice@getalby.com</code>), and LNURL-pay.</li>
           <li><b>Zero Fees Internally</b>: Internal LNbits transfers settle instantly with 0 routing fees without needing child invoice keys!</li>
           <li><b>All-or-Nothing Batching</b>: If wallet balance is insufficient, payments are skipped safely with an alert rather than paying partially.</li>
@@ -360,13 +368,13 @@
 <!-- =================================================================== -->
 <!-- DIALOG: CREATE / EDIT PLAN -->
 <!-- =================================================================== -->
-<q-dialog v-model="planDialog.show" position="top" persistent full-width>
-  <q-card class="q-pa-md lnbits__dialog-card" style="max-width: 900px">
+<q-dialog v-model="planDialog.show" position="top" persistent :full-width="$q.screen.lt.sm" :maximized="$q.screen.lt.sm">
+  <q-card class="q-pa-md lnbits__dialog-card" :style="$q.screen.lt.sm ? 'max-width: 100%' : 'max-width: 900px; width: 900px'">
     <q-card-section class="row items-center justify-between q-pb-none">
       <div class="text-h6 text-weight-bold">
         {{ planDialog.data.id ? 'Edit Disbursement Plan' : 'Create New Disbursement Plan' }}
       </div>
-      <q-btn flat round icon="close" v-close-popup />
+      <q-btn flat round icon="close" v-close-popup></q-btn>
     </q-card-section>
 
     <q-card-section>
@@ -395,7 +403,7 @@
         </div>
 
         <!-- Schedule Section -->
-        <q-card flat bordered class="q-pa-md bg-grey-1">
+        <q-card flat bordered class="q-pa-md" :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-2'">
           <div class="row items-center justify-between q-mb-sm">
             <div class="text-subtitle2 text-weight-bold">Recurrence Schedule</div>
             <q-btn-toggle
@@ -508,7 +516,7 @@
             </div>
           </div>
 
-          <div class="text-caption text-indigo-9 q-mt-sm">
+          <div class="text-caption q-mt-sm" :class="$q.dark.isActive ? 'text-blue-3' : 'text-indigo-9'">
             <b>Computed Cron:</b> <code>{{ planDialog.data.cron_expression }}</code>
           </div>
         </q-card>
@@ -538,7 +546,7 @@
         </div>
 
         <!-- RECIPIENT LINE ITEMS SECTION -->
-        <q-card flat bordered class="q-pa-md">
+        <q-card flat bordered class="q-pa-md" :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-1'">
           <div class="row items-center justify-between q-mb-sm">
             <div class="text-subtitle1 text-weight-bold">
               Disbursement Recipients ({{ planDialog.data.items.length }})
@@ -560,7 +568,7 @@
           <div
             v-for="(item, idx) in planDialog.data.items"
             :key="idx"
-            class="row q-col-gutter-sm items-center q-mb-sm bg-grey-1 q-pa-xs rounded-borders"
+            :class="['row q-col-gutter-sm items-center q-mb-sm q-pa-xs rounded-borders', $q.dark.isActive ? 'bg-grey-9' : 'bg-grey-2']"
           >
             <!-- Label -->
             <div class="col-12 col-sm-3">
@@ -623,21 +631,21 @@
                 color="negative"
                 icon="delete"
                 @click="removeRecipientRow(idx)"
-              />
+              ></q-btn>
             </div>
           </div>
         </q-card>
 
         <!-- Submit / Cancel -->
         <div class="row q-mt-md justify-end q-gutter-x-sm">
-          <q-btn flat color="grey" label="Cancel" v-close-popup />
+          <q-btn flat color="grey" label="Cancel" v-close-popup></q-btn>
           <q-btn
             unelevated
             color="primary"
             type="submit"
             :label="planDialog.data.id ? 'Save Changes' : 'Create Plan'"
             :loading="planDialog.saving"
-          />
+          ></q-btn>
         </div>
       </q-form>
     </q-card-section>
@@ -647,11 +655,11 @@
 <!-- =================================================================== -->
 <!-- DIALOG: SIMULATION PREVIEW -->
 <!-- =================================================================== -->
-<q-dialog v-model="simDialog.show">
-  <q-card class="q-pa-md lnbits__dialog-card" style="max-width: 600px">
+<q-dialog v-model="simDialog.show" :maximized="$q.screen.lt.sm">
+  <q-card class="q-pa-md lnbits__dialog-card" :style="$q.screen.lt.sm ? 'max-width: 100%' : 'max-width: 600px'">
     <q-card-section class="row items-center justify-between q-pb-none">
       <div class="text-h6 text-weight-bold">Disbursement Simulation (Dry Run)</div>
-      <q-btn flat round icon="close" v-close-popup />
+      <q-btn flat round icon="close" v-close-popup></q-btn>
     </q-card-section>
 
     <q-card-section v-if="simDialog.data">
@@ -690,7 +698,7 @@
           { name: 'estimated_sats', label: 'Estimated Sats', field: 'estimated_sats', align: 'right' }
         ]"
         row-key="label"
-      />
+      ></q-table>
 
       <div v-if="simDialog.data.warnings && simDialog.data.warnings.length" class="q-mt-md">
         <div class="text-subtitle2 text-negative">Warnings:</div>
@@ -705,11 +713,11 @@
 <!-- =================================================================== -->
 <!-- DIALOG: EXECUTION DETAILS BREAKDOWN -->
 <!-- =================================================================== -->
-<q-dialog v-model="detailsDialog.show">
-  <q-card class="q-pa-md lnbits__dialog-card" style="max-width: 650px">
+<q-dialog v-model="detailsDialog.show" :maximized="$q.screen.lt.sm">
+  <q-card class="q-pa-md lnbits__dialog-card" :style="$q.screen.lt.sm ? 'max-width: 100%' : 'max-width: 650px'">
     <q-card-section class="row items-center justify-between q-pb-none">
       <div class="text-h6 text-weight-bold">Execution Breakdown</div>
-      <q-btn flat round icon="close" v-close-popup />
+      <q-btn flat round icon="close" v-close-popup></q-btn>
     </q-card-section>
 
     <q-card-section v-if="detailsDialog.data">
