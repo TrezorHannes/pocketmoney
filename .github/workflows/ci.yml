@@ -22,12 +22,12 @@ jobs:
 
     steps:
       - name: Checkout PocketMoney
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: pocketmoney
 
       - name: Checkout LNbits
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: lnbits/lnbits
           ref: dev
