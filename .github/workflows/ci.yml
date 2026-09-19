@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - name: Checkout PocketMoney
+        uses: actions/checkout@v4
+        with:
+          path: pocketmoney
+
+      - name: Checkout LNbits
+        uses: actions/checkout@v4
+        with:
+          repository: lnbits/lnbits
+          ref: dev
+          path: lnbits
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install LNbits Dependencies
+        run: |
+          cd lnbits
+          uv sync --extra all
+
+      - name: Symlink PocketMoney into LNbits Extensions
+        run: |
+          ln -s "$GITHUB_WORKSPACE/pocketmoney" "$GITHUB_WORKSPACE/lnbits/lnbits/extensions/pocketmoney"
+
+      - name: Run Ruff Linter
+        run: |
+          uv run --directory "$GITHUB_WORKSPACE/lnbits" ruff check "$GITHUB_WORKSPACE/pocketmoney"
+
+      - name: Run Pytest Test Suite
+        env:
+          LNBITS_BACKEND_WALLET_CLASS: FakeWallet
+          FAKE_WALLET_SECRET: ci-test-secret
+        run: |
+          uv run --directory "$GITHUB_WORKSPACE/lnbits" pytest "$GITHUB_WORKSPACE/pocketmoney/tests" -v
