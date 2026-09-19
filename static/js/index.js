@@ -98,9 +98,17 @@ window.app = Vue.createApp({
           value: w.id
         }))
     },
+
+    locationOrigin() {
+      return (typeof window !== 'undefined' && window.location) ? window.location.origin : ''
+    },
   },
 
   methods: {
+    copyCurl(cmd) {
+      LNbits.utils.copyText(cmd, 'Curl command copied to clipboard!')
+    },
+
     onWalletChange() {
       this.fetchPlans()
       this.fetchHistory()

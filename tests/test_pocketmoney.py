@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -8,7 +8,13 @@ from lnbits.core.services import create_user_account
 from lnbits.core.services.payments import update_wallet_balance
 from pocketmoney.crud import create_plan, db, get_executions, get_plan
 from pocketmoney.migrations import m001_initial
-from pocketmoney.models import CadenceType, ExecutionStatus, ItemCreate, PlanCreate
+from pocketmoney.models import (
+    CadenceType,
+    ExecutionStatus,
+    ItemCreate,
+    PlanCreate,
+    TriggerType,
+)
 from pocketmoney.services import (
     _parse_cron_field,
     calculate_next_run,
@@ -143,4 +149,17 @@ async def test_e2e_plan_execution():
     # Parent balance unchanged
     parent_untouched = await get_wallet(parent.id)
     assert parent_untouched and parent_untouched.balance == 23000
+
+    # Verify daemon advances next_run_at on insufficient funds skip to prevent 30s re-trigger loops
+    past_due = datetime.now(timezone.utc) - timedelta(minutes=5)
+    await db.execute(
+        f"UPDATE {db.references_schema}plans SET next_run_at = :past_due WHERE id = :id",
+        {"past_due": past_due, "id": large_plan.id},
+    )
+    daemon_exec = await execute_plan(large_plan.id, triggered_by=TriggerType.DAEMON.value)
+    assert daemon_exec.status == ExecutionStatus.SKIPPED_INSUFFICIENT_FUNDS.value
+    plan_after_daemon = await get_plan(large_plan.id)
+    assert plan_after_daemon and plan_after_daemon.next_run_at > past_due
+
+
 

@@ -317,6 +317,13 @@ async def execute_plan(
                 error_message="No line items in plan.",
             )
 
+        # Helper to advance schedule if triggered by daemon
+        async def _advance_if_daemon():
+            if triggered_by == TriggerType.DAEMON.value:
+                now_utc = datetime.now(timezone.utc)
+                next_run = calculate_next_run(plan.cadence_type, plan.cron_expression, plan.timezone)
+                await update_plan_execution(plan.id, now_utc, next_run)
+
         # Stage 1: Pre-calculate satoshi costs and verify safety limits
         item_conversions: list[tuple[Item, int]] = []
         total_sats_needed = 0
@@ -329,6 +336,7 @@ async def execute_plan(
                     logger.warning(err)
                     if settings.notify_on_failure:
                         await send_telegram_alert(bot_token, chat_id, f"⚠️ <b>PocketMoney Skipped:</b> {err}")
+                    await _advance_if_daemon()
                     return await create_execution(
                         wallet_id=plan.wallet_id,
                         plan_id=plan.id,
@@ -346,6 +354,7 @@ async def execute_plan(
                 logger.error(err)
                 if settings.notify_on_failure:
                     await send_telegram_alert(bot_token, chat_id, f"❌ <b>PocketMoney Failed:</b> {err}")
+                await _advance_if_daemon()
                 return await create_execution(
                     wallet_id=plan.wallet_id,
                     plan_id=plan.id,
@@ -362,6 +371,7 @@ async def execute_plan(
             logger.warning(err)
             if settings.notify_on_failure:
                 await send_telegram_alert(bot_token, chat_id, f"⚠️ <b>PocketMoney Skipped:</b> {err}")
+            await _advance_if_daemon()
             return await create_execution(
                 wallet_id=plan.wallet_id,
                 plan_id=plan.id,
@@ -386,6 +396,7 @@ async def execute_plan(
                     chat_id,
                     f"⚠️ <b>PocketMoney Low Balance:</b> {err} (Plan: {plan.name})",
                 )
+            await _advance_if_daemon()
             return await create_execution(
                 wallet_id=plan.wallet_id,
                 plan_id=plan.id,

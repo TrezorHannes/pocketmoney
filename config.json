@@ -3,13 +3,8 @@
   "short_description": "Recurring allowances and scheduled batch disbursements in any currency",
   "version": "0.1.0",
   "tile": "/pocketmoney/static/image/tile.png",
+  "icon": "schedule",
   "min_lnbits_version": "0.12.0",
-  "contributors": [
-    {
-      "name": "Hakuna",
-      "uri": "https://github.com/TrezorHannes",
-      "role": "Developer"
-    }
-  ],
+  "contributors": ["TrezorHannes", "Hakuna"],
   "license": "MIT"
 }
