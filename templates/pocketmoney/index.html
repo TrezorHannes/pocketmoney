@@ -6,6 +6,43 @@
 {% endblock %}
 
 {% block page %}
+<style>
+.pm-segmented-control {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 3px;
+  gap: 3px;
+}
+.body--light .pm-segmented-control {
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+.pm-segmented-btn {
+  border-radius: 16px !important;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 12px;
+  min-height: 26px;
+  letter-spacing: 0.2px;
+  transition: all 0.2s ease;
+}
+.pm-segmented-btn.active-preset {
+  background: #1976d2 !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.pm-segmented-btn.inactive-preset {
+  background: transparent !important;
+  color: #90a4ae !important;
+}
+.pm-segmented-btn.inactive-preset:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+</style>
 {% raw %}
 <div class="row q-col-gutter-md">
   <!-- Header Card -->
@@ -100,7 +137,7 @@
                   v-model="props.row.is_active"
                   @update:model-value="togglePlanActive(props.row)"
                   color="positive"
-                />
+                ></q-toggle>
               </q-td>
             </template>
 
@@ -265,7 +302,7 @@
                   color="primary"
                   label="View Breakdown"
                   @click="openDetailsDialog(props.row)"
-                />
+                ></q-btn>
               </q-td>
             </template>
           </q-table>
@@ -302,7 +339,7 @@
                   dense
                   v-model.trim="settingsForm.telegram_chat_id"
                   label="Telegram User / Group Chat ID"
-                  hint="Your Telegram chat ID or channel ID"
+                  hint="User ID (e.g. 251510786) or Group ID (-100...). Bot must be added to the group first!"
                 ></q-input>
               </div>
             </div>
@@ -389,7 +426,7 @@
               label="Plan Name *"
               hint="e.g. Kids Weekly Pocket Money, VPS Hosting"
               :rules="[val => !!val || 'Plan name is required']"
-            />
+            ></q-input>
           </div>
           <div class="col-12 col-md-6">
             <q-input
@@ -398,7 +435,7 @@
               v-model.trim="planDialog.data.description"
               label="Description"
               hint="Optional notes"
-            />
+            ></q-input>
           </div>
         </div>
 
@@ -406,17 +443,24 @@
         <q-card flat bordered class="q-pa-md" :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-2'">
           <div class="row items-center justify-between q-mb-sm">
             <div class="text-subtitle2 text-weight-bold">Recurrence Schedule</div>
-            <q-btn-toggle
-              v-model="planDialog.advancedCron"
-              dense
-              no-caps
-              rounded
-              toggle-color="primary"
-              :options="[
-                { label: 'Friendly Presets', value: false },
-                { label: 'Advanced Cron', value: true }
-              ]"
-            />
+            <div class="pm-segmented-control">
+              <q-btn
+                flat
+                dense
+                no-caps
+                label="Friendly Presets"
+                :class="['pm-segmented-btn', !planDialog.advancedCron ? 'active-preset' : 'inactive-preset']"
+                @click="planDialog.advancedCron = false; updateCronFromPresets()"
+              ></q-btn>
+              <q-btn
+                flat
+                dense
+                no-caps
+                label="Advanced Cron"
+                :class="['pm-segmented-btn', planDialog.advancedCron ? 'active-preset' : 'inactive-preset']"
+                @click="planDialog.advancedCron = true"
+              ></q-btn>
+            </div>
           </div>
 
           <!-- Presets Mode -->
@@ -435,7 +479,7 @@
                 map-options
                 label="Frequency"
                 @update:model-value="updateCronFromPresets"
-              />
+              ></q-select>
             </div>
 
             <!-- Day of Week for Weekly -->
@@ -457,7 +501,7 @@
                 map-options
                 label="Day of Week"
                 @update:model-value="updateCronFromPresets"
-              />
+              ></q-select>
             </div>
 
             <!-- Day of Month for Monthly -->
@@ -471,7 +515,7 @@
                 v-model.number="planDialog.presetMonthDay"
                 label="Day of Month"
                 @update:model-value="updateCronFromPresets"
-              />
+              ></q-input>
             </div>
 
             <!-- Execution Time -->
@@ -493,7 +537,7 @@
                         @update:model-value="updateCronFromPresets"
                       >
                         <div class="row items-center justify-end">
-                          <q-btn v-close-popup label="Close" color="primary" flat />
+                          <q-btn v-close-popup label="Close" color="primary" flat></q-btn>
                         </div>
                       </q-time>
                     </q-popup-proxy>
@@ -512,7 +556,7 @@
                 v-model.trim="planDialog.data.cron_expression"
                 label="Cron Expression (5 fields)"
                 hint="e.g. '0 9 * * 5' (every Friday at 9am)"
-              />
+              ></q-input>
             </div>
           </div>
 
@@ -531,7 +575,7 @@
               v-model.number="planDialog.data.low_balance_threshold"
               label="Low Balance Alert Threshold (sats)"
               hint="Alert if funding wallet falls below this balance"
-            />
+            ></q-input>
           </div>
           <div class="col-12 col-md-6">
             <q-input
@@ -541,7 +585,7 @@
               v-model.number="planDialog.data.max_sat_limit"
               label="Overall Batch Max Sats Cap (Optional)"
               hint="Abort batch if fiat conversion exceeds this satoshi ceiling"
-            />
+            ></q-input>
           </div>
         </div>
 
@@ -558,7 +602,7 @@
               label="Add Recipient"
               dense
               @click="addRecipientRow"
-            />
+            ></q-btn>
           </div>
 
           <div v-if="!planDialog.data.items.length" class="text-caption text-grey text-center q-pa-md">
@@ -568,54 +612,51 @@
           <div
             v-for="(item, idx) in planDialog.data.items"
             :key="idx"
-            :class="['row q-col-gutter-sm items-center q-mb-sm q-pa-xs rounded-borders', $q.dark.isActive ? 'bg-grey-9' : 'bg-grey-2']"
+            :class="['row q-col-gutter-sm items-center q-mb-sm q-pa-sm rounded-borders', $q.dark.isActive ? 'bg-grey-9' : 'bg-grey-2']"
           >
             <!-- Label -->
-            <div class="col-12 col-sm-3">
+            <div class="col-12 col-sm-2">
               <q-input
                 filled
                 dense
                 v-model.trim="item.label"
                 label="Name / Label *"
-                placeholder="e.g. Alisa"
+                placeholder="e.g. Alice"
                 :rules="[val => !!val || 'Label required']"
-              />
+              ></q-input>
+            </div>
+
+            <!-- Target Type -->
+            <div class="col-12 col-sm-2">
+              <q-select
+                filled
+                dense
+                v-model="item.recipientMode"
+                :options="[
+                  { label: '👛 Internal', value: 'wallet' },
+                  { label: '⚡ Lightning', value: 'manual' }
+                ]"
+                emit-value
+                map-options
+                label="Type"
+                @update:model-value="onRecipientModeChange(item)"
+              ></q-select>
             </div>
 
             <!-- Recipient Target -->
-            <div class="col-12 col-sm-4">
-              <!-- Mode toggle: internal wallet vs manual -->
-              <div class="row items-center q-mb-xs q-gutter-x-xs">
-                <q-btn-toggle
-                  v-model="item.recipientMode"
-                  dense
-                  rounded
-                  no-caps
-                  unelevated
-                  size="xs"
-                  :options="[
-                    { label: 'Internal Wallet', value: 'wallet' },
-                    { label: 'Manual Address', value: 'manual' },
-                  ]"
-                  color="grey-7"
-                  active-color="primary"
-                  @update:model-value="item.recipient = ''"
-                ></q-btn-toggle>
-              </div>
-
+            <div class="col-12 col-sm-3">
               <!-- Internal wallet picker -->
               <q-select
                 v-if="item.recipientMode === 'wallet'"
                 filled
                 dense
                 v-model="item.recipient"
-                :options="(g.user && g.user.wallets || []).filter(w => w.id !== selectedWallet)"
-                option-value="id"
-                option-label="name"
+                :options="internalWalletOptions"
                 emit-value
                 map-options
                 label="Target Wallet *"
                 :rules="[val => !!val || 'Please select a wallet']"
+                @update:model-value="val => onInternalWalletSelected(item, val)"
               ></q-select>
 
               <!-- Manual input: Lightning Address / LNURL / Wallet ID -->
@@ -624,12 +665,11 @@
                 filled
                 dense
                 v-model.trim="item.recipient"
-                label="Lightning Address or Wallet ID *"
-                placeholder="user@getalby.com or wallet_id"
+                label="Address / LNURL *"
+                placeholder="alice@getalby.com"
                 :rules="[val => !!val || 'Target required']"
               ></q-input>
             </div>
-
 
             <!-- Amount -->
             <div class="col-6 col-sm-2">
@@ -641,11 +681,11 @@
                 v-model.number="item.amount"
                 label="Amount *"
                 :rules="[val => val > 0 || 'Must be > 0']"
-              />
+              ></q-input>
             </div>
 
             <!-- Currency -->
-            <div class="col-6 col-sm-2">
+            <div class="col-5 col-sm-2">
               <q-select
                 filled
                 dense
@@ -656,11 +696,11 @@
                 emit-value
                 map-options
                 label="Currency"
-              />
+              ></q-select>
             </div>
 
             <!-- Delete -->
-            <div class="col-12 col-sm-1 text-center">
+            <div class="col-1 col-sm-1 text-center">
               <q-btn
                 flat
                 round
@@ -778,9 +818,10 @@
           { name: 'status', label: 'Status', field: 'status', align: 'center' }
         ]"
         row-key="item_id"
-      />
+      ></q-table>
     </q-card-section>
   </q-card>
 </q-dialog>
 {% endraw %}
 {% endblock %}
+
