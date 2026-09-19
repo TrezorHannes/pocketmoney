@@ -1,0 +1,20 @@
+[project]
+name = "lnbits-pocketmoney"
+version = "0.1.0"
+requires-python = ">=3.10,<3.13"
+description = "PocketMoney recurring allowances and scheduled disbursements for LNbits."
+authors = [{ name = "Hakuna", email = "hakuna@tunnelsats.com" }]
+urls = { Repository = "https://github.com/TrezorHannes/pocketmoney" }
+
+dependencies = [ "lnbits>1" ]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+pythonpath = ["..", "."]
+

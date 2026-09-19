@@ -1,0 +1,9 @@
+{
+  "repos": [
+    {
+      "id": "pocketmoney",
+      "organisation": "TrezorHannes",
+      "repository": "pocketmoney"
+    }
+  ]
+}

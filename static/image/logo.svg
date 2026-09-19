@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Radial Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1e2738" />
+      <stop offset="100%" stop-color="#0f1523" />
+    </radialGradient>
+
+    <!-- Gold Gradient for Coins & Monogram -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe279" />
+      <stop offset="50%" stop-color="#f5af19" />
+      <stop offset="100%" stop-color="#d48806" />
+    </linearGradient>
+
+    <!-- Secondary Gold for Highlights -->
+    <linearGradient id="goldLight" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#e69500" />
+      <stop offset="100%" stop-color="#fff1a8" />
+    </linearGradient>
+
+    <!-- Pocket Denim Gradient -->
+    <linearGradient id="denimGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#344661" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+
+    <!-- Drop Shadows -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#000" flood-opacity="0.5" />
+    </filter>
+    <filter id="coinShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="2" dy="6" stdDeviation="5" flood-color="#000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Background Circle -->
+  <rect width="512" height="512" rx="100" fill="url(#bgGrad)" />
+
+  <!-- Outer Orbit Ring -->
+  <circle cx="256" cy="256" r="220" fill="none" stroke="#d4af37" stroke-width="3.5" stroke-opacity="0.85" />
+
+  <!-- Orbit Arrows & Accents -->
+  <!-- Left Upward Arrow with dashed stem -->
+  <path d="M 95 256 L 95 340" stroke="#f5af19" stroke-width="4.5" stroke-dasharray="8 6" stroke-linecap="round" />
+  <polygon points="95,235 80,265 110,265" fill="#f5af19" />
+
+  <!-- Right Downward Arrow with dashed stem -->
+  <path d="M 417 256 L 417 172" stroke="#f5af19" stroke-width="4.5" stroke-dasharray="8 6" stroke-linecap="round" />
+  <polygon points="417,277 402,247 432,247" fill="#f5af19" />
+
+  <!-- Orbit Dots -->
+  <circle cx="145" cy="125" r="5" fill="#f5af19" />
+  <circle cx="395" cy="185" r="5.5" fill="#f5af19" />
+  <circle cx="120" cy="385" r="5.5" fill="#f5af19" />
+  <circle cx="288" cy="430" r="4.5" fill="#f5af19" />
+
+  <!-- TOP BITCOIN COIN 1 (Upper Right) -->
+  <g filter="url(#coinShadow)">
+    <circle cx="330" cy="115" r="58" fill="url(#goldGrad)" stroke="#ffd700" stroke-width="2.5" />
+    <circle cx="330" cy="115" r="49" fill="none" stroke="#b87802" stroke-width="2" stroke-dasharray="4 3" />
+    <!-- Bitcoin B symbol -->
+    <text x="330" y="132" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="48" font-weight="900" fill="#b87802" text-anchor="middle">₿</text>
+    <text x="329" y="131" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="48" font-weight="900" fill="#fff3a8" text-anchor="middle">₿</text>
+  </g>
+
+  <!-- TOP BITCOIN COIN 2 (Center Left) -->
+  <g filter="url(#coinShadow)">
+    <circle cx="235" cy="148" r="62" fill="url(#goldGrad)" stroke="#ffd700" stroke-width="2.5" />
+    <circle cx="235" cy="148" r="53" fill="none" stroke="#b87802" stroke-width="2" stroke-dasharray="4 3" />
+    <!-- Bitcoin B symbol -->
+    <text x="235" y="167" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="900" fill="#b87802" text-anchor="middle">₿</text>
+    <text x="234" y="166" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="900" fill="#fff3a8" text-anchor="middle">₿</text>
+  </g>
+
+  <!-- JEANS POCKET BODY -->
+  <g filter="url(#shadow)">
+    <!-- Pocket Shape: Curved top and shield point bottom -->
+    <path d="M 145 160 
+             C 145 155, 150 152, 156 152 
+             L 356 152 
+             C 362 152, 367 155, 367 160 
+             L 367 335 
+             C 367 340, 364 345, 359 349 
+             L 259 406 
+             C 257 407, 255 407, 253 406 
+             L 153 349 
+             C 148 345, 145 340, 145 335 
+             Z" 
+          fill="url(#denimGrad)" stroke="#161f2e" stroke-width="4" />
+
+    <!-- Outer Gold Stitching -->
+    <path d="M 155 162 
+             L 357 162 
+             L 357 333 
+             L 256 394 
+             L 155 333 
+             Z" 
+          fill="none" stroke="#e5a93b" stroke-width="2.8" stroke-dasharray="6 4" stroke-linecap="round" />
+
+    <!-- Inner Gold Stitching -->
+    <path d="M 163 170 
+             L 349 170 
+             L 349 328 
+             L 256 383 
+             L 163 328 
+             Z" 
+          fill="none" stroke="#f5af19" stroke-width="1.5" stroke-dasharray="4 3" stroke-linecap="round" opacity="0.75" />
+
+    <!-- Pocket Rivets -->
+    <circle cx="152" cy="188" r="6" fill="url(#goldLight)" stroke="#875800" stroke-width="1.5" />
+    <circle cx="360" cy="188" r="6" fill="url(#goldLight)" stroke="#875800" stroke-width="1.5" />
+    <circle cx="256" cy="188" r="7.5" fill="url(#goldLight)" stroke="#875800" stroke-width="1.5" />
+  </g>
+
+  <!-- POCKET MONEY "PM" BOLD MONOGRAM -->
+  <g filter="url(#shadow)">
+    <!-- Shadow/Outline for PM -->
+    <text x="259" y="324" 
+          font-family="'Arial Black', Impact, sans-serif" 
+          font-size="132" 
+          font-weight="900" 
+          letter-spacing="-6"
+          fill="#875200" 
+          text-anchor="middle">PM</text>
+
+    <!-- Main Golden PM Monogram -->
+    <text x="256" y="320" 
+          font-family="'Arial Black', Impact, sans-serif" 
+          font-size="132" 
+          font-weight="900" 
+          letter-spacing="-6"
+          fill="url(#goldLight)" 
+          stroke="#fff4b8" 
+          stroke-width="1.5"
+          text-anchor="middle">PM</text>
+  </g>
+</svg>

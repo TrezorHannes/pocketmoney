@@ -1,0 +1,741 @@
+{% extends "base.html" %} {% from "macros.jinja" import window_vars with context %}
+
+{% block scripts %}
+{{ window_vars(user) }}
+<script src="{{ static_url_for('pocketmoney/static', path='js/index.js') }}"></script>
+{% endblock %}
+
+{% block page %}
+{% raw %}
+<div class="row q-col-gutter-md">
+  <!-- Header Card -->
+  <div class="col-12 col-md-8 q-gutter-y-md">
+    <q-card>
+      <q-card-section class="row items-center q-pb-none">
+        <div class="row items-center q-gutter-x-md">
+          <q-avatar size="56px" rounded class="shadow-2">
+            <img src="/pocketmoney/static/image/tile.png" alt="PocketMoney" />
+          </q-avatar>
+          <div>
+            <div class="text-h5 text-weight-bold">PocketMoney</div>
+            <div class="text-caption text-grey">
+              Recurring allowances & scheduled batch disbursements in any currency
+            </div>
+          </div>
+        </div>
+        <q-space></q-space>
+        <div class="row items-center q-gutter-x-sm">
+          <q-select
+            filled
+            dense
+            emit-value
+            map-options
+            v-model="selectedWallet"
+            :options="g.user.walletOptions"
+            label="Funding Wallet"
+            style="min-width: 220px"
+            @update:model-value="onWalletChange"
+          ></q-select>
+        </div>
+      </q-card-section>
+
+      <!-- Main Tabs -->
+      <q-card-section class="q-pt-sm">
+        <q-tabs
+          v-model="activeTab"
+          dense
+          class="text-grey"
+          active-color="primary"
+          indicator-color="primary"
+          align="left"
+          narrow-indicator
+        >
+          <q-tab name="plans" icon="schedule" label="Disbursement Plans">
+            <q-badge v-if="plans.length" color="primary" floating>{{ plans.length }}</q-badge>
+          </q-tab>
+          <q-tab name="history" icon="history" label="Execution History"></q-tab>
+          <q-tab name="settings" icon="settings" label="Settings & Alerts"></q-tab>
+        </q-tabs>
+        <q-separator></q-separator>
+      </q-card-section>
+    </q-card>
+
+    <!-- TAB 1: DISBURSEMENT PLANS -->
+    <div v-show="activeTab === 'plans'">
+      <q-card>
+        <q-card-section class="row items-center justify-between q-pb-none">
+          <div class="text-subtitle1 text-weight-bold">Active Plans</div>
+          <div class="q-gutter-x-sm">
+            <q-btn
+              unelevated
+              color="primary"
+              icon="add"
+              label="New Plan"
+              @click="openPlanDialog()"
+            ></q-btn>
+            <q-btn flat round icon="refresh" @click="fetchPlans()">
+              <q-tooltip>Refresh Plans</q-tooltip>
+            </q-btn>
+          </div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-table
+            flat
+            dense
+            :rows="plans"
+            :columns="planColumns"
+            row-key="id"
+            :loading="loadingPlans"
+            no-data-label="No disbursement plans found for this wallet. Create one to get started!"
+          >
+            <!-- Active Toggle -->
+            <template v-slot:body-cell-is_active="props">
+              <q-td :props="props">
+                <q-toggle
+                  dense
+                  v-model="props.row.is_active"
+                  @update:model-value="togglePlanActive(props.row)"
+                  color="positive"
+                />
+              </q-td>
+            </template>
+
+            <!-- Plan Name & Description -->
+            <template v-slot:body-cell-name="props">
+              <q-td :props="props">
+                <div class="text-weight-bold">{{ props.row.name }}</div>
+                <div class="text-caption text-grey" v-if="props.row.description">
+                  {{ props.row.description }}
+                </div>
+              </q-td>
+            </template>
+
+            <!-- Cadence Badge -->
+            <template v-slot:body-cell-cadence="props">
+              <q-td :props="props">
+                <q-badge color="indigo-7" class="q-pa-xs">
+                  {{ formatCadence(props.row) }}
+                </q-badge>
+              </q-td>
+            </template>
+
+            <!-- Next Run -->
+            <template v-slot:body-cell-next_run_at="props">
+              <q-td :props="props">
+                <div class="text-body2">{{ formatDateTime(props.row.next_run_at) }}</div>
+                <div class="text-caption text-grey">
+                  {{ formatRelativeTime(props.row.next_run_at) }}
+                </div>
+              </q-td>
+            </template>
+
+            <!-- Recipients & Budget -->
+            <template v-slot:body-cell-recipients="props">
+              <q-td :props="props">
+                <q-badge color="teal-8" class="q-pa-xs">
+                  {{ (props.row.items || []).length }} recipient(s)
+                </q-badge>
+                <div class="text-caption text-grey q-mt-xs">
+                  {{ formatItemsSummary(props.row.items) }}
+                </div>
+              </q-td>
+            </template>
+
+            <!-- Actions -->
+            <template v-slot:body-cell-actions="props">
+              <q-td :props="props" class="q-gutter-x-xs text-right">
+                <q-btn
+                  flat
+                  round
+                  dense
+                  color="positive"
+                  icon="play_arrow"
+                  @click="runPlanNow(props.row)"
+                >
+                  <q-tooltip>Pay Now (Execute immediately)</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  color="info"
+                  icon="science"
+                  @click="simulatePlan(props.row)"
+                >
+                  <q-tooltip>Simulate (Dry run check)</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  color="secondary"
+                  icon="link"
+                  @click="copyWebhookUrl(props.row)"
+                >
+                  <q-tooltip>Copy Webhook URL</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  color="primary"
+                  icon="edit"
+                  @click="openPlanDialog(props.row)"
+                >
+                  <q-tooltip>Edit Plan</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  color="negative"
+                  icon="delete"
+                  @click="deletePlan(props.row)"
+                >
+                  <q-tooltip>Delete Plan</q-tooltip>
+                </q-btn>
+              </q-td>
+            </template>
+          </q-table>
+        </q-card-section>
+      </q-card>
+    </div>
+
+    <!-- TAB 2: EXECUTION HISTORY -->
+    <div v-show="activeTab === 'history'">
+      <q-card>
+        <q-card-section class="row items-center justify-between q-pb-none">
+          <div class="text-subtitle1 text-weight-bold">Execution History & Audit Log</div>
+          <q-btn flat round icon="refresh" @click="fetchHistory()">
+            <q-tooltip>Refresh Logs</q-tooltip>
+          </q-btn>
+        </q-card-section>
+
+        <q-card-section>
+          <q-table
+            flat
+            dense
+            :rows="historyLogs"
+            :columns="historyColumns"
+            row-key="id"
+            :loading="loadingHistory"
+            no-data-label="No executions recorded yet."
+          >
+            <!-- Status Badge -->
+            <template v-slot:body-cell-status="props">
+              <q-td :props="props">
+                <q-badge
+                  :color="
+                    props.row.status === 'success'
+                      ? 'positive'
+                      : props.row.status === 'skipped_insufficient_funds'
+                      ? 'warning'
+                      : 'negative'
+                  "
+                >
+                  {{ props.row.status.toUpperCase() }}
+                </q-badge>
+              </q-td>
+            </template>
+
+            <!-- Executed At -->
+            <template v-slot:body-cell-executed_at="props">
+              <q-td :props="props">
+                {{ formatDateTime(props.row.executed_at) }}
+              </q-td>
+            </template>
+
+            <!-- Total Sats -->
+            <template v-slot:body-cell-total_sats="props">
+              <q-td :props="props" class="text-weight-bold">
+                {{ (props.row.total_sats || 0).toLocaleString() }} sats
+              </q-td>
+            </template>
+
+            <!-- Details Button -->
+            <template v-slot:body-cell-details="props">
+              <q-td :props="props" class="text-right">
+                <q-btn
+                  flat
+                  dense
+                  color="primary"
+                  label="View Breakdown"
+                  @click="openDetailsDialog(props.row)"
+                />
+              </q-td>
+            </template>
+          </q-table>
+        </q-card-section>
+      </q-card>
+    </div>
+
+    <!-- TAB 3: SETTINGS & ALERTS -->
+    <div v-show="activeTab === 'settings'">
+      <q-card>
+        <q-card-section>
+          <div class="text-subtitle1 text-weight-bold q-mb-md">
+            Telegram Notifications & Alerts
+          </div>
+          <div class="text-body2 text-grey q-mb-lg">
+            Configure a Telegram bot to receive notifications whenever recurring pocket money is
+            paid, or when your funding wallet balance falls below safety thresholds.
+          </div>
+
+          <q-form @submit="saveSettings" class="q-gutter-y-md">
+            <q-input
+              filled
+              dense
+              v-model.trim="settingsForm.telegram_bot_token"
+              label="Telegram Bot Token"
+              hint="From @BotFather (e.g. 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)"
+            />
+
+            <q-input
+              filled
+              dense
+              v-model.trim="settingsForm.telegram_chat_id"
+              label="Telegram User / Group Chat ID"
+              hint="Your Telegram chat ID or channel ID"
+            />
+
+            <div class="q-gutter-y-sm q-mt-md">
+              <q-toggle
+                v-model="settingsForm.notify_on_success"
+                label="Notify on successful allowance payments"
+              />
+              <q-toggle
+                v-model="settingsForm.notify_on_failure"
+                label="Notify on failed payment attempts"
+              />
+              <q-toggle
+                v-model="settingsForm.notify_on_low_balance"
+                label="Send warning when wallet balance is below threshold"
+              />
+            </div>
+
+            <div class="row q-gutter-x-md q-mt-lg">
+              <q-btn
+                unelevated
+                color="primary"
+                type="submit"
+                label="Save Settings"
+                :loading="savingSettings"
+              />
+              <q-btn
+                flat
+                color="secondary"
+                label="Send Test Telegram Alert"
+                @click="testTelegram"
+                :loading="testingTelegram"
+              />
+            </div>
+          </q-form>
+        </q-card-section>
+      </q-card>
+    </div>
+  </div>
+
+  <!-- Sidebar Info Card -->
+  <div class="col-12 col-md-4 q-gutter-y-md">
+    <q-card>
+      <q-card-section>
+        <div class="text-h6 text-weight-bold">About PocketMoney</div>
+        <p class="text-body2 text-grey q-mt-sm">
+          PocketMoney automates recurring pocket money, contractor payroll, and monthly server bills.
+        </p>
+        <q-separator class="q-my-sm"></q-separator>
+        <div class="text-subtitle2 text-weight-bold q-mb-xs">Key Highlights</div>
+        <ul class="q-pl-md text-caption text-grey-8">
+          <li><b>Universal Recipient</b>: Accepts internal LNbits Wallet IDs, Lightning Addresses (<code>alice@getalby.com</code>), and LNURL-pay.</li>
+          <li><b>Zero Fees Internally</b>: Internal LNbits transfers settle instantly with 0 routing fees without needing child invoice keys!</li>
+          <li><b>All-or-Nothing Batching</b>: If wallet balance is insufficient, payments are skipped safely with an alert rather than paying partially.</li>
+          <li><b>Multi-Currency</b>: Send in EUR, USD, GBP, or sats with just-in-time exchange rate conversion.</li>
+        </ul>
+      </q-card-section>
+    </q-card>
+  </div>
+</div>
+
+<!-- =================================================================== -->
+<!-- DIALOG: CREATE / EDIT PLAN -->
+<!-- =================================================================== -->
+<q-dialog v-model="planDialog.show" position="top" persistent full-width>
+  <q-card class="q-pa-md lnbits__dialog-card" style="max-width: 900px">
+    <q-card-section class="row items-center justify-between q-pb-none">
+      <div class="text-h6 text-weight-bold">
+        {{ planDialog.data.id ? 'Edit Disbursement Plan' : 'Create New Disbursement Plan' }}
+      </div>
+      <q-btn flat round icon="close" v-close-popup />
+    </q-card-section>
+
+    <q-card-section>
+      <q-form @submit="submitPlanForm" class="q-gutter-y-md">
+        <!-- Name & Description -->
+        <div class="row q-col-gutter-md">
+          <div class="col-12 col-md-6">
+            <q-input
+              filled
+              dense
+              v-model.trim="planDialog.data.name"
+              label="Plan Name *"
+              hint="e.g. Kids Weekly Pocket Money, VPS Hosting"
+              :rules="[val => !!val || 'Plan name is required']"
+            />
+          </div>
+          <div class="col-12 col-md-6">
+            <q-input
+              filled
+              dense
+              v-model.trim="planDialog.data.description"
+              label="Description"
+              hint="Optional notes"
+            />
+          </div>
+        </div>
+
+        <!-- Schedule Section -->
+        <q-card flat bordered class="q-pa-md bg-grey-1">
+          <div class="row items-center justify-between q-mb-sm">
+            <div class="text-subtitle2 text-weight-bold">Recurrence Schedule</div>
+            <q-btn-toggle
+              v-model="planDialog.advancedCron"
+              dense
+              no-caps
+              rounded
+              toggle-color="primary"
+              :options="[
+                { label: 'Friendly Presets', value: false },
+                { label: 'Advanced Cron', value: true }
+              ]"
+            />
+          </div>
+
+          <!-- Presets Mode -->
+          <div v-if="!planDialog.advancedCron" class="row q-col-gutter-md items-center">
+            <div class="col-12 col-md-4">
+              <q-select
+                filled
+                dense
+                v-model="planDialog.presetCadence"
+                :options="[
+                  { label: 'Weekly', value: 'weekly' },
+                  { label: 'Monthly', value: 'monthly' },
+                  { label: 'Daily', value: 'daily' }
+                ]"
+                emit-value
+                map-options
+                label="Frequency"
+                @update:model-value="updateCronFromPresets"
+              />
+            </div>
+
+            <!-- Day of Week for Weekly -->
+            <div v-if="planDialog.presetCadence === 'weekly'" class="col-12 col-md-4">
+              <q-select
+                filled
+                dense
+                v-model="planDialog.presetWeekday"
+                :options="[
+                  { label: 'Friday', value: '5' },
+                  { label: 'Monday', value: '1' },
+                  { label: 'Tuesday', value: '2' },
+                  { label: 'Wednesday', value: '3' },
+                  { label: 'Thursday', value: '4' },
+                  { label: 'Saturday', value: '6' },
+                  { label: 'Sunday', value: '0' }
+                ]"
+                emit-value
+                map-options
+                label="Day of Week"
+                @update:model-value="updateCronFromPresets"
+              />
+            </div>
+
+            <!-- Day of Month for Monthly -->
+            <div v-if="planDialog.presetCadence === 'monthly'" class="col-12 col-md-4">
+              <q-input
+                filled
+                dense
+                type="number"
+                min="1"
+                max="31"
+                v-model.number="planDialog.presetMonthDay"
+                label="Day of Month"
+                @update:model-value="updateCronFromPresets"
+              />
+            </div>
+
+            <!-- Execution Time -->
+            <div class="col-12 col-md-4">
+              <q-input
+                filled
+                dense
+                v-model="planDialog.presetTime"
+                mask="time"
+                label="Execution Time (HH:MM)"
+                @update:model-value="updateCronFromPresets"
+              >
+                <template v-slot:append>
+                  <q-icon name="access_time" class="cursor-pointer">
+                    <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                      <q-time
+                        v-model="planDialog.presetTime"
+                        format24h
+                        @update:model-value="updateCronFromPresets"
+                      >
+                        <div class="row items-center justify-end">
+                          <q-btn v-close-popup label="Close" color="primary" flat />
+                        </div>
+                      </q-time>
+                    </q-popup-proxy>
+                  </q-icon>
+                </template>
+              </q-input>
+            </div>
+          </div>
+
+          <!-- Advanced Cron Mode -->
+          <div v-else class="row q-col-gutter-md items-center">
+            <div class="col-12 col-md-8">
+              <q-input
+                filled
+                dense
+                v-model.trim="planDialog.data.cron_expression"
+                label="Cron Expression (5 fields)"
+                hint="e.g. '0 9 * * 5' (every Friday at 9am)"
+              />
+            </div>
+          </div>
+
+          <div class="text-caption text-indigo-9 q-mt-sm">
+            <b>Computed Cron:</b> <code>{{ planDialog.data.cron_expression }}</code>
+          </div>
+        </q-card>
+
+        <!-- Safety & Volatility Controls -->
+        <div class="row q-col-gutter-md">
+          <div class="col-12 col-md-6">
+            <q-input
+              filled
+              dense
+              type="number"
+              v-model.number="planDialog.data.low_balance_threshold"
+              label="Low Balance Alert Threshold (sats)"
+              hint="Alert if funding wallet falls below this balance"
+            />
+          </div>
+          <div class="col-12 col-md-6">
+            <q-input
+              filled
+              dense
+              type="number"
+              v-model.number="planDialog.data.max_sat_limit"
+              label="Overall Batch Max Sats Cap (Optional)"
+              hint="Abort batch if fiat conversion exceeds this satoshi ceiling"
+            />
+          </div>
+        </div>
+
+        <!-- RECIPIENT LINE ITEMS SECTION -->
+        <q-card flat bordered class="q-pa-md">
+          <div class="row items-center justify-between q-mb-sm">
+            <div class="text-subtitle1 text-weight-bold">
+              Disbursement Recipients ({{ planDialog.data.items.length }})
+            </div>
+            <q-btn
+              outline
+              color="primary"
+              icon="add"
+              label="Add Recipient"
+              dense
+              @click="addRecipientRow"
+            />
+          </div>
+
+          <div v-if="!planDialog.data.items.length" class="text-caption text-grey text-center q-pa-md">
+            No recipients added yet. Click "+ Add Recipient" to add children, vendors, or contractors!
+          </div>
+
+          <div
+            v-for="(item, idx) in planDialog.data.items"
+            :key="idx"
+            class="row q-col-gutter-sm items-center q-mb-sm bg-grey-1 q-pa-xs rounded-borders"
+          >
+            <!-- Label -->
+            <div class="col-12 col-sm-3">
+              <q-input
+                filled
+                dense
+                v-model.trim="item.label"
+                label="Name / Label *"
+                placeholder="e.g. Alisa"
+                :rules="[val => !!val || 'Label required']"
+              />
+            </div>
+
+            <!-- Recipient Target -->
+            <div class="col-12 col-sm-4">
+              <q-input
+                filled
+                dense
+                v-model.trim="item.recipient"
+                label="Target (Wallet ID or Lightning Address) *"
+                placeholder="kid@getalby.com or wallet_id"
+                :rules="[val => !!val || 'Target required']"
+              />
+            </div>
+
+            <!-- Amount -->
+            <div class="col-6 col-sm-2">
+              <q-input
+                filled
+                dense
+                type="number"
+                step="any"
+                v-model.number="item.amount"
+                label="Amount *"
+                :rules="[val => val > 0 || 'Must be > 0']"
+              />
+            </div>
+
+            <!-- Currency -->
+            <div class="col-6 col-sm-2">
+              <q-select
+                filled
+                dense
+                v-model="item.currency"
+                :options="availableCurrencies"
+                option-value="code"
+                option-label="code"
+                emit-value
+                map-options
+                label="Currency"
+              />
+            </div>
+
+            <!-- Delete -->
+            <div class="col-12 col-sm-1 text-center">
+              <q-btn
+                flat
+                round
+                dense
+                color="negative"
+                icon="delete"
+                @click="removeRecipientRow(idx)"
+              />
+            </div>
+          </div>
+        </q-card>
+
+        <!-- Submit / Cancel -->
+        <div class="row q-mt-md justify-end q-gutter-x-sm">
+          <q-btn flat color="grey" label="Cancel" v-close-popup />
+          <q-btn
+            unelevated
+            color="primary"
+            type="submit"
+            :label="planDialog.data.id ? 'Save Changes' : 'Create Plan'"
+            :loading="planDialog.saving"
+          />
+        </div>
+      </q-form>
+    </q-card-section>
+  </q-card>
+</q-dialog>
+
+<!-- =================================================================== -->
+<!-- DIALOG: SIMULATION PREVIEW -->
+<!-- =================================================================== -->
+<q-dialog v-model="simDialog.show">
+  <q-card class="q-pa-md lnbits__dialog-card" style="max-width: 600px">
+    <q-card-section class="row items-center justify-between q-pb-none">
+      <div class="text-h6 text-weight-bold">Disbursement Simulation (Dry Run)</div>
+      <q-btn flat round icon="close" v-close-popup />
+    </q-card-section>
+
+    <q-card-section v-if="simDialog.data">
+      <!-- Status Alert -->
+      <q-banner
+        rounded
+        :class="simDialog.data.can_execute ? 'bg-positive text-white' : 'bg-negative text-white'"
+        class="q-mb-md"
+      >
+        {{ simDialog.data.can_execute ? 'Simulation Passed: Ready for Execution!' : 'Simulation Failed: See Warnings Below' }}
+      </q-banner>
+
+      <div class="row q-col-gutter-sm q-mb-md">
+        <div class="col-6">
+          <div class="text-caption text-grey">Current Wallet Balance:</div>
+          <div class="text-subtitle1 text-weight-bold">
+            {{ simDialog.data.current_balance_sats.toLocaleString() }} sats
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="text-caption text-grey">Total Required:</div>
+          <div class="text-subtitle1 text-weight-bold text-primary">
+            {{ simDialog.data.total_sats.toLocaleString() }} sats
+          </div>
+        </div>
+      </div>
+
+      <!-- Item Breakdown Table -->
+      <q-table
+        flat
+        dense
+        :rows="simDialog.data.items"
+        :columns="[
+          { name: 'label', label: 'Recipient', field: 'label', align: 'left' },
+          { name: 'amount', label: 'Amount', field: row => row.amount + ' ' + row.currency, align: 'left' },
+          { name: 'estimated_sats', label: 'Estimated Sats', field: 'estimated_sats', align: 'right' }
+        ]"
+        row-key="label"
+      />
+
+      <div v-if="simDialog.data.warnings && simDialog.data.warnings.length" class="q-mt-md">
+        <div class="text-subtitle2 text-negative">Warnings:</div>
+        <ul class="q-pl-md text-caption text-negative">
+          <li v-for="(w, idx) in simDialog.data.warnings" :key="idx">{{ w }}</li>
+        </ul>
+      </div>
+    </q-card-section>
+  </q-card>
+</q-dialog>
+
+<!-- =================================================================== -->
+<!-- DIALOG: EXECUTION DETAILS BREAKDOWN -->
+<!-- =================================================================== -->
+<q-dialog v-model="detailsDialog.show">
+  <q-card class="q-pa-md lnbits__dialog-card" style="max-width: 650px">
+    <q-card-section class="row items-center justify-between q-pb-none">
+      <div class="text-h6 text-weight-bold">Execution Breakdown</div>
+      <q-btn flat round icon="close" v-close-popup />
+    </q-card-section>
+
+    <q-card-section v-if="detailsDialog.data">
+      <div class="q-mb-md">
+        <div><b>Status:</b> {{ detailsDialog.data.status.toUpperCase() }}</div>
+        <div><b>Trigger:</b> {{ detailsDialog.data.triggered_by }}</div>
+        <div><b>Total Debited:</b> {{ detailsDialog.data.total_sats.toLocaleString() }} sats</div>
+        <div v-if="detailsDialog.data.error_message" class="text-negative q-mt-xs">
+          <b>Error:</b> {{ detailsDialog.data.error_message }}
+        </div>
+      </div>
+
+      <q-table
+        flat
+        dense
+        :rows="detailsDialog.data.details || []"
+        :columns="[
+          { name: 'label', label: 'Recipient', field: 'label', align: 'left' },
+          { name: 'amount', label: 'Amount', field: row => row.amount_fiat + ' ' + row.currency, align: 'left' },
+          { name: 'amount_sats', label: 'Sats', field: 'amount_sats', align: 'right' },
+          { name: 'status', label: 'Status', field: 'status', align: 'center' }
+        ]"
+        row-key="item_id"
+      />
+    </q-card-section>
+  </q-card>
+</q-dialog>
+{% endraw %}
+{% endblock %}
