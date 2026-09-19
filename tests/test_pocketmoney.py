@@ -6,7 +6,14 @@ from lnbits.commands import migrate_databases
 from lnbits.core.crud import create_wallet, get_wallet
 from lnbits.core.services import create_user_account
 from lnbits.core.services.payments import update_wallet_balance
-from pocketmoney.crud import claim_plan_running, create_plan, db, get_executions, get_plan, release_plan_running
+from pocketmoney.crud import (
+    claim_plan_running,
+    create_plan,
+    db,
+    get_executions,
+    get_plan,
+    release_plan_running,
+)
 from pocketmoney.migrations import m001_initial, m002_add_plan_is_running
 from pocketmoney.models import (
     CadenceType,
