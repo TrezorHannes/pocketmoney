@@ -89,6 +89,55 @@
   color: #e0e0e0;
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
+.pm-recipients-box {
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+.body--dark .pm-recipients-box {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.pm-recipient-row {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pm-recipient-row:hover {
+  border-color: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.body--dark .pm-recipient-row {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.body--dark .pm-recipient-row:hover {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.pm-recipients-header {
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  opacity: 0.75;
+}
+.pm-recipient-row .q-field__native,
+.pm-recipient-row .q-field__input {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.pm-delete-btn {
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.pm-delete-btn:hover {
+  transform: scale(1.1);
+  background: rgba(244, 67, 54, 0.12) !important;
+}
 </style>
 {% raw %}
 <div class="row q-col-gutter-md">
@@ -932,35 +981,69 @@
         </div>
 
         <!-- RECIPIENT LINE ITEMS SECTION -->
-        <q-card flat bordered class="q-pa-md" :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-1'">
-          <div class="row items-center justify-between q-mb-sm">
-            <div class="text-subtitle1 text-weight-bold">
-              Disbursement Recipients ({{ planDialog.data.items.length }})
+        <div class="pm-recipients-box q-pa-md">
+          <!-- Section Header -->
+          <div class="row items-center justify-between q-mb-md">
+            <div class="row items-center q-gutter-x-sm">
+              <q-avatar size="32px" font-size="18px" color="primary" text-color="white" icon="group"></q-avatar>
+              <div>
+                <span class="text-subtitle1 text-weight-bold" :class="$q.dark.isActive ? 'text-white' : 'text-grey-9'">Disbursement Recipients</span>
+                <q-badge rounded color="primary" class="q-ml-xs text-weight-bold">{{ planDialog.data.items.length }}</q-badge>
+                <div class="text-caption gt-xs" :class="$q.dark.isActive ? 'text-grey-5' : 'text-grey-7'">Split scheduled transfers across internal wallets or Lightning addresses.</div>
+              </div>
             </div>
             <q-btn
-              outline
+              unelevated
+              color="primary"
+              icon="person_add"
+              label="Add Recipient"
+              size="sm"
+              class="text-weight-bold q-px-sm"
+              style="border-radius: 6px;"
+              @click="addRecipientRow"
+            >
+              <q-tooltip>Add another recipient to this plan</q-tooltip>
+            </q-btn>
+          </div>
+
+          <!-- Empty State -->
+          <div v-if="!planDialog.data.items.length" class="text-center q-py-lg q-px-md text-grey">
+            <q-icon name="person_add_alt" size="40px" class="q-mb-xs opacity-60" color="primary"></q-icon>
+            <div class="text-subtitle2 text-weight-medium" :class="$q.dark.isActive ? 'text-white' : 'text-grey-9'">No recipients added yet</div>
+            <div class="text-caption q-mb-sm" :class="$q.dark.isActive ? 'text-grey-5' : 'text-grey-7'">
+              Click <b>+ Add Recipient</b> to allocate recurring payouts to internal wallets or Lightning addresses.
+            </div>
+            <q-btn
+              unelevated
+              size="sm"
               color="primary"
               icon="add"
-              label="Add Recipient"
-              dense
+              label="Add First Recipient"
               @click="addRecipientRow"
             ></q-btn>
           </div>
 
-          <div v-if="!planDialog.data.items.length" class="text-caption text-grey text-center q-pa-md">
-            No recipients added yet. Click "+ Add Recipient" to add children, vendors, or contractors!
+          <!-- Desktop Table Column Headers -->
+          <div v-if="planDialog.data.items.length" class="row q-col-gutter-sm text-caption text-weight-bold q-mb-xs q-px-sm gt-xs pm-recipients-header" :class="$q.dark.isActive ? 'text-grey-5' : 'text-grey-7'">
+            <div class="col-sm-2 text-uppercase">Recipient</div>
+            <div class="col-sm-2 text-uppercase">Type</div>
+            <div class="col-sm-4 text-uppercase">Destination (Wallet / LNURL)</div>
+            <div class="col-sm-3 text-uppercase">Amount & Currency</div>
+            <div class="col-sm-1 text-uppercase text-center">Action</div>
           </div>
 
+          <!-- Recipient Rows -->
           <div
             v-for="(item, idx) in planDialog.data.items"
             :key="idx"
-            :class="['row q-col-gutter-sm items-center q-mb-sm q-pa-sm rounded-borders', $q.dark.isActive ? 'bg-grey-9' : 'bg-grey-2']"
+            class="pm-recipient-row row q-col-gutter-sm items-center"
           >
             <!-- Label -->
             <div class="col-12 col-sm-2">
               <q-input
-                filled
+                outlined
                 dense
+                hide-bottom-space
                 v-model.trim="item.label"
                 label="Name / Label *"
                 placeholder="e.g. Alice"
@@ -971,8 +1054,9 @@
             <!-- Target Type -->
             <div class="col-12 col-sm-2">
               <q-select
-                filled
+                outlined
                 dense
+                hide-bottom-space
                 v-model="item.recipientMode"
                 :options="[
                   { label: '👛 Internal', value: 'wallet' },
@@ -986,12 +1070,13 @@
             </div>
 
             <!-- Recipient Target -->
-            <div class="col-12 col-sm-3">
+            <div class="col-12 col-sm-4">
               <!-- Internal wallet picker -->
               <q-select
                 v-if="item.recipientMode === 'wallet'"
-                filled
+                outlined
                 dense
+                hide-bottom-space
                 v-model="item.recipient"
                 :options="internalWalletOptions"
                 emit-value
@@ -1004,8 +1089,9 @@
               <!-- Manual input: Lightning Address / LNURL / Wallet ID -->
               <q-input
                 v-else
-                filled
+                outlined
                 dense
+                hide-bottom-space
                 v-model.trim="item.recipient"
                 label="Address / LNURL *"
                 placeholder="alice@getalby.com"
@@ -1013,47 +1099,65 @@
               ></q-input>
             </div>
 
-            <!-- Amount -->
-            <div class="col-6 col-sm-2">
-              <q-input
-                filled
-                dense
-                type="number"
-                step="any"
-                v-model.number="item.amount"
-                label="Amount *"
-                :rules="[val => val > 0 || 'Must be > 0']"
-              ></q-input>
-            </div>
-
-            <!-- Currency -->
-            <div class="col-5 col-sm-2">
-              <q-select
-                filled
-                dense
-                v-model="item.currency"
-                :options="availableCurrencies"
-                option-value="code"
-                option-label="code"
-                emit-value
-                map-options
-                label="Currency"
-              ></q-select>
+            <!-- Amount & Currency -->
+            <div class="col-10 col-sm-3 row q-col-gutter-xs">
+              <div class="col-6">
+                <q-input
+                  outlined
+                  dense
+                  hide-bottom-space
+                  type="number"
+                  step="any"
+                  v-model.number="item.amount"
+                  label="Amount *"
+                  :rules="[val => val > 0 || 'Must be > 0']"
+                ></q-input>
+              </div>
+              <div class="col-6">
+                <q-select
+                  outlined
+                  dense
+                  hide-bottom-space
+                  v-model="item.currency"
+                  :options="availableCurrencies"
+                  option-value="code"
+                  option-label="code"
+                  emit-value
+                  map-options
+                  label="Curr"
+                >
+                  <q-tooltip>Currency code</q-tooltip>
+                </q-select>
+              </div>
             </div>
 
             <!-- Delete -->
-            <div class="col-1 col-sm-1 text-center">
+            <div class="col-2 col-sm-1 text-center self-center">
               <q-btn
                 flat
                 round
                 dense
+                size="sm"
                 color="negative"
-                icon="delete"
+                icon="delete_outline"
+                class="pm-delete-btn"
                 @click="removeRecipientRow(idx)"
-              ></q-btn>
+              >
+                <q-tooltip>Remove recipient</q-tooltip>
+              </q-btn>
             </div>
           </div>
-        </q-card>
+
+          <!-- Summary Strip -->
+          <div v-if="planDialog.data.items.length" class="row items-center justify-between text-caption q-mt-xs q-px-xs" :class="$q.dark.isActive ? 'text-grey-5' : 'text-grey-7'">
+            <div>
+              Total Recipients: <b :class="$q.dark.isActive ? 'text-grey-3' : 'text-grey-9'">{{ planDialog.data.items.length }}</b>
+            </div>
+            <div>
+              ⚡ Universal: 0-fee off-chain internal settlement
+            </div>
+          </div>
+        </div>
 
         <!-- Submit / Cancel -->
         <div class="row q-mt-md justify-end q-gutter-x-sm">
