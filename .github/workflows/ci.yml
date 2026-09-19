@@ -42,7 +42,7 @@ jobs:
       - name: Install LNbits Dependencies
         run: |
           cd lnbits
-          uv sync --extra all
+          uv sync
 
       - name: Symlink PocketMoney into LNbits Extensions
         run: |
@@ -50,11 +50,13 @@ jobs:
 
       - name: Run Ruff Linter
         run: |
-          uv run --directory "$GITHUB_WORKSPACE/lnbits" ruff check "$GITHUB_WORKSPACE/pocketmoney"
+          cd lnbits
+          uv run ruff check "$GITHUB_WORKSPACE/pocketmoney"
 
       - name: Run Pytest Test Suite
         env:
           LNBITS_BACKEND_WALLET_CLASS: FakeWallet
           FAKE_WALLET_SECRET: ci-test-secret
         run: |
-          uv run --directory "$GITHUB_WORKSPACE/lnbits" pytest "$GITHUB_WORKSPACE/pocketmoney/tests" -v
+          cd lnbits
+          uv run pytest "$GITHUB_WORKSPACE/pocketmoney/tests" -v
