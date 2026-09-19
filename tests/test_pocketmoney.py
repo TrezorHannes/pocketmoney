@@ -6,7 +6,8 @@ from lnbits.commands import migrate_databases
 from lnbits.core.crud import create_wallet, get_wallet
 from lnbits.core.services import create_user_account
 from lnbits.core.services.payments import update_wallet_balance
-from pocketmoney.crud import create_plan, get_executions, get_plan
+from pocketmoney.crud import create_plan, db, get_executions, get_plan
+from pocketmoney.migrations import m001_initial
 from pocketmoney.models import CadenceType, ExecutionStatus, ItemCreate, PlanCreate
 from pocketmoney.services import (
     _parse_cron_field,
@@ -66,6 +67,8 @@ def test_plan_create_model():
 async def test_e2e_plan_execution():
     # Ensure database is migrated
     await migrate_databases()
+    async with db.connect() as conn:
+        await m001_initial(conn)
 
     # Create user and wallets
     user = await create_user_account()
