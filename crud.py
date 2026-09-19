@@ -197,6 +197,37 @@ async def delete_plan(plan_id: str, wallet_id: str) -> bool:
     return True
 
 
+async def claim_plan_running(plan_id: str) -> bool:
+    """
+    Atomically claim a plan for execution by setting is_running = TRUE.
+
+    Only succeeds when is_running is currently FALSE, preventing concurrent
+    execution across multiple LNbits worker processes.
+
+    Returns True if the claim succeeded (this process owns the lock),
+    False if another process already claimed it.
+    """
+    result = await db.execute(
+        f"""
+        UPDATE {db.references_schema}plans
+        SET is_running = TRUE
+        WHERE id = :id AND is_running = FALSE
+        """,
+        {"id": plan_id},
+    )
+    # rowcount == 1 means we won the race; 0 means another worker claimed it
+    return (getattr(result, "rowcount", None) or 0) >= 1
+
+
+async def release_plan_running(plan_id: str) -> None:
+    """Release the is_running claim so subsequent executions can proceed."""
+    await db.execute(
+        f"UPDATE {db.references_schema}plans SET is_running = FALSE WHERE id = :id",
+        {"id": plan_id},
+    )
+
+
+
 # ---------------------------------------------------------------------------
 # Items CRUD
 # ---------------------------------------------------------------------------
