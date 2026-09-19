@@ -147,9 +147,14 @@ async def send_telegram_alert(
     bot_token: Optional[str],
     chat_id: Optional[str],
     message: str,
-) -> bool:
+) -> tuple[bool, str]:
+    """Send a Telegram message. Returns (success, error_detail).
+
+    error_detail is an empty string on success, or the Telegram API error
+    description on failure (e.g. "Unauthorized", "chat not found").
+    """
     if not bot_token or not chat_id:
-        return False
+        return False, "Bot token or chat ID is missing."
 
     try:
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -158,10 +163,20 @@ async def send_telegram_alert(
                 url,
                 json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
             )
-            return resp.status_code == 200
+            if resp.status_code == 200:
+                return True, ""
+            # Telegram API error: extract human-readable description
+            try:
+                body = resp.json()
+                detail = body.get("description", resp.text)
+            except Exception:
+                detail = resp.text or f"HTTP {resp.status_code}"
+            logger.warning(f"Telegram API error ({resp.status_code}): {detail}")
+            return False, detail
     except Exception as exc:
         logger.warning(f"Failed to dispatch Telegram message: {exc}")
-        return False
+        return False, str(exc)
+
 
 
 # ---------------------------------------------------------------------------

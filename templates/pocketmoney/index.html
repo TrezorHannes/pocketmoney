@@ -584,15 +584,52 @@
 
             <!-- Recipient Target -->
             <div class="col-12 col-sm-4">
+              <!-- Mode toggle: internal wallet vs manual -->
+              <div class="row items-center q-mb-xs q-gutter-x-xs">
+                <q-btn-toggle
+                  v-model="item.recipientMode"
+                  dense
+                  rounded
+                  no-caps
+                  unelevated
+                  size="xs"
+                  :options="[
+                    { label: 'Internal Wallet', value: 'wallet' },
+                    { label: 'Manual Address', value: 'manual' },
+                  ]"
+                  color="grey-7"
+                  active-color="primary"
+                  @update:model-value="item.recipient = ''"
+                ></q-btn-toggle>
+              </div>
+
+              <!-- Internal wallet picker -->
+              <q-select
+                v-if="item.recipientMode === 'wallet'"
+                filled
+                dense
+                v-model="item.recipient"
+                :options="(g.user && g.user.wallets || []).filter(w => w.id !== selectedWallet)"
+                option-value="id"
+                option-label="name"
+                emit-value
+                map-options
+                label="Target Wallet *"
+                :rules="[val => !!val || 'Please select a wallet']"
+              ></q-select>
+
+              <!-- Manual input: Lightning Address / LNURL / Wallet ID -->
               <q-input
+                v-else
                 filled
                 dense
                 v-model.trim="item.recipient"
-                label="Target (Wallet ID or Lightning Address) *"
-                placeholder="kid@getalby.com or wallet_id"
+                label="Lightning Address or Wallet ID *"
+                placeholder="user@getalby.com or wallet_id"
                 :rules="[val => !!val || 'Target required']"
-              />
+              ></q-input>
             </div>
+
 
             <!-- Amount -->
             <div class="col-6 col-sm-2">

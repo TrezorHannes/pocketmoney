@@ -224,6 +224,7 @@ window.app = Vue.createApp({
           items: (plan.items || []).map(i => ({
             label: i.label,
             recipient: i.recipient,
+            recipientMode: 'manual',
             amount: i.amount,
             currency: i.currency,
             memo: i.memo || '',
@@ -243,9 +244,7 @@ window.app = Vue.createApp({
           low_balance_threshold: 0,
           telegram_chat_id: null,
           items: [
-            { label: 'Alisa', recipient: '', amount: 4, currency: 'EUR', memo: '' },
-            { label: 'Felix', recipient: '', amount: 4, currency: 'EUR', memo: '' },
-            { label: 'Valentina', recipient: '', amount: 4, currency: 'EUR', memo: '' },
+            { label: '', recipient: '', recipientMode: 'manual', amount: 4, currency: 'EUR', memo: '' },
           ],
         }
         this.planDialog.advancedCron = false
@@ -260,6 +259,7 @@ window.app = Vue.createApp({
       this.planDialog.data.items.push({
         label: '',
         recipient: '',
+        recipientMode: 'manual',
         amount: 1000,
         currency: 'SAT',
         memo: '',
