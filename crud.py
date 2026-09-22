@@ -79,37 +79,34 @@ async def get_plan(plan_id: str, wallet_id: Optional[str] = None) -> Optional[Pl
         query += " AND wallet_id = :wallet_id"
         values["wallet_id"] = wallet_id
 
-    row = await db.fetchone(query, values)
-    if not row:
+    plan = await db.fetchone(query, values, model=Plan)
+    if not plan:
         return None
 
-    plan = Plan(**dict(row))
     plan.items = await get_items_for_plan(plan.id)
     return plan
 
 
 async def get_plan_by_webhook(webhook_token: str) -> Optional[Plan]:
-    row = await db.fetchone(
+    plan = await db.fetchone(
         f"SELECT * FROM {db.references_schema}plans WHERE webhook_token = :token",
         {"token": webhook_token},
+        model=Plan,
     )
-    if not row:
+    if not plan:
         return None
-    plan = Plan(**dict(row))
     plan.items = await get_items_for_plan(plan.id)
     return plan
 
 
 async def get_plans(wallet_id: str) -> List[Plan]:
-    rows = await db.fetchall(
+    plans = await db.fetchall(
         f"SELECT * FROM {db.references_schema}plans WHERE wallet_id = :wallet_id ORDER BY created_at DESC",
         {"wallet_id": wallet_id},
+        model=Plan,
     )
-    plans: List[Plan] = []
-    for row in rows:
-        plan = Plan(**dict(row))
+    for plan in plans:
         plan.items = await get_items_for_plan(plan.id)
-        plans.append(plan)
     return plans
 
 
@@ -121,12 +118,10 @@ async def get_due_plans(now: datetime) -> List[Plan]:
         ORDER BY next_run_at ASC
         """,
         {"now": now},
+        model=Plan,
     )
-    plans: List[Plan] = []
-    for row in rows:
-        plan = Plan(**dict(row))
+    for plan in plans:
         plan.items = await get_items_for_plan(plan.id)
-        plans.append(plan)
     return plans
 
 
@@ -258,7 +253,8 @@ async def create_item(plan_id: str, data: ItemCreate) -> Item:
             "label": data.label,
             "recipient": target,
             "recipient_type": rec_type,
-            "amount": float(data.amount),
+            # str() keeps NUMERIC exact on Postgres; aiosqlite cannot bind Decimal.
+            "amount": str(data.amount),
             "currency": data.currency.upper(),
             "memo": data.memo,
             "max_sat_limit": data.max_sat_limit,
@@ -326,12 +322,13 @@ async def create_execution(
         },
     )
 
-    row = await db.fetchone(
+    execution = await db.fetchone(
         f"SELECT * FROM {db.references_schema}executions WHERE id = :id",
         {"id": exec_id},
+        model=Execution,
     )
-    assert row, "Execution log failed"
-    return Execution.from_row(dict(row))
+    assert execution, "Execution log failed"
+    return execution
 
 
 async def get_executions(wallet_id: str, plan_id: Optional[str] = None, limit: int = 50) -> List[Execution]:
@@ -344,8 +341,7 @@ async def get_executions(wallet_id: str, plan_id: Optional[str] = None, limit: i
     query += " ORDER BY executed_at DESC LIMIT :limit"
     values["limit"] = limit
 
-    rows = await db.fetchall(query, values)
-    return [Execution.from_row(dict(r)) for r in rows]
+    return await db.fetchall(query, values, model=Execution)
 
 
 # ---------------------------------------------------------------------------
