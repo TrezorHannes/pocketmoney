@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from uuid import uuid4
 
@@ -22,6 +22,21 @@ from .models import (
 
 db = Database("ext_pocketmoney")
 
+# A worker that dies mid-run leaves is_running = TRUE behind; another worker
+# may reclaim the plan once the claim is older than this.
+CLAIM_STALE_AFTER = timedelta(minutes=10)
+
+
+def _utc_ts(key: str) -> str:
+    """db.timestamp_placeholder() pinned to UTC.
+
+    The plain helper renders the epoch in the Postgres session timezone, which
+    shifted every schedule when the database wasn't running in UTC.
+    """
+    if db.type == "SQLITE":
+        return db.timestamp_placeholder(key)  # epochs, already UTC
+    return f"({db.timestamp_placeholder(key)} AT TIME ZONE 'UTC')"
+
 
 # ---------------------------------------------------------------------------
 # Plans CRUD
@@ -40,7 +55,8 @@ async def create_plan(wallet_id: str, data: PlanCreate, next_run_at: datetime) -
         ) VALUES (
             :id, :wallet_id, :name, :description, :cadence_type, :cron_expression,
             :timezone, :is_active, :max_sat_limit, :webhook_token,
-            :low_balance_threshold, :telegram_chat_id, :next_run_at
+            :low_balance_threshold, :telegram_chat_id,
+            {_utc_ts("next_run_at")}
         )
         """,
         {
@@ -111,10 +127,10 @@ async def get_plans(wallet_id: str) -> List[Plan]:
 
 
 async def get_due_plans(now: datetime) -> List[Plan]:
-    rows = await db.fetchall(
+    plans = await db.fetchall(
         f"""
         SELECT * FROM {db.references_schema}plans
-        WHERE is_active = TRUE AND next_run_at <= :now
+        WHERE is_active = TRUE AND next_run_at <= {_utc_ts("now")}
         ORDER BY next_run_at ASC
         """,
         {"now": now},
@@ -153,7 +169,12 @@ async def update_plan(plan_id: str, data: PlanUpdate, next_run_at: Optional[date
         fields["next_run_at"] = next_run_at
 
     if fields:
-        set_clause = ", ".join(f"{k} = :{k}" for k in fields)
+        set_clause = ", ".join(
+            f"{k} = {_utc_ts(k)}"
+            if isinstance(v, datetime)
+            else f"{k} = :{k}"
+            for k, v in fields.items()
+        )
         fields["id"] = plan_id
         await db.execute(
             f"UPDATE {db.references_schema}plans SET {set_clause} WHERE id = :id",
@@ -172,7 +193,8 @@ async def update_plan_execution(plan_id: str, last_run_at: datetime, next_run_at
     await db.execute(
         f"""
         UPDATE {db.references_schema}plans
-        SET last_run_at = :last_run_at, next_run_at = :next_run_at
+        SET last_run_at = {_utc_ts("last_run_at")},
+            next_run_at = {_utc_ts("next_run_at")}
         WHERE id = :id
         """,
         {
@@ -197,18 +219,29 @@ async def claim_plan_running(plan_id: str) -> bool:
     Atomically claim a plan for execution by setting is_running = TRUE.
 
     Only succeeds when is_running is currently FALSE, preventing concurrent
-    execution across multiple LNbits worker processes.
+    execution across multiple LNbits worker processes, or when the previous
+    claim is stale (a worker died mid-run without releasing it).
 
     Returns True if the claim succeeded (this process owns the lock),
     False if another process already claimed it.
     """
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         f"""
         UPDATE {db.references_schema}plans
-        SET is_running = TRUE
-        WHERE id = :id AND is_running = FALSE
+        SET is_running = TRUE, running_since = {_utc_ts("now")}
+        WHERE id = :id
+          AND (
+            is_running = FALSE
+            OR running_since IS NULL
+            OR running_since < {_utc_ts("stale_before")}
+          )
         """,
-        {"id": plan_id},
+        {
+            "id": plan_id,
+            "now": now,
+            "stale_before": now - CLAIM_STALE_AFTER,
+        },
     )
     # rowcount == 1 means we won the race; 0 means another worker claimed it
     return (getattr(result, "rowcount", None) or 0) >= 1
@@ -304,9 +337,10 @@ async def create_execution(
     await db.execute(
         f"""
         INSERT INTO {db.references_schema}executions (
-            id, plan_id, wallet_id, triggered_by, status, total_sats, total_fees_msat, details, error_message
+            id, plan_id, wallet_id, triggered_by, status, total_sats, total_fees_msat, details, error_message, executed_at
         ) VALUES (
-            :id, :plan_id, :wallet_id, :triggered_by, :status, :total_sats, :total_fees_msat, :details, :error_message
+            :id, :plan_id, :wallet_id, :triggered_by, :status, :total_sats, :total_fees_msat, :details, :error_message,
+            {_utc_ts("executed_at")}
         )
         """,
         {
@@ -319,6 +353,7 @@ async def create_execution(
             "total_fees_msat": total_fees_msat,
             "details": details_json,
             "error_message": error_message,
+            "executed_at": datetime.now(timezone.utc),
         },
     )
 
