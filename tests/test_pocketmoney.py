@@ -81,7 +81,7 @@ def test_calculate_next_run_weekly():
 
 def test_calculate_next_run_daily():
     ref_time = datetime(2026, 9, 18, 8, 0, 0, tzinfo=timezone.utc)
-    next_run = calculate_next_run("daily", "0 9 * * *", "UTC", from_time=ref_time)
+    next_run = calculate_next_run("0 9 * * *", "UTC", from_time=ref_time)
     assert next_run.day == 18
     assert next_run.hour == 9
     assert next_run.minute == 0
@@ -129,7 +129,7 @@ async def test_e2e_plan_execution():
             ItemCreate(label="Alice", recipient=child2.id, amount=Decimal("4000"), currency="SAT"),
         ],
     )
-    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(parent.id, plan_data, next_run)
 
     sim = await simulate_plan(plan.id, parent.id)
@@ -166,7 +166,7 @@ async def test_e2e_plan_execution():
             ItemCreate(label="Big Target", recipient=child1.id, amount=Decimal("100000"), currency="SAT"),
         ],
     )
-    large_next_run = calculate_next_run(large_plan_data.cadence_type.value, large_plan_data.cron_expression, large_plan_data.timezone)
+    large_next_run = calculate_next_run(large_plan_data.cron_expression, large_plan_data.timezone)
     large_plan = await create_plan(parent.id, large_plan_data, large_next_run)
     failed_exec = await execute_plan(large_plan.id, triggered_by="manual")
 
@@ -216,7 +216,7 @@ async def test_partial_failure_status():
             ItemCreate(label="BadKid", recipient=bad_recipient, amount=Decimal("500"), currency="SAT"),
         ],
     )
-    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(parent.id, plan_data, next_run)
 
     execution = await execute_plan(plan.id, triggered_by="manual")
@@ -264,7 +264,7 @@ async def test_db_claim_guard():
         cron_expression="0 9 * * 5",
         items=[],
     )
-    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(wallet.id, plan_data, next_run)
 
     # First claim should succeed

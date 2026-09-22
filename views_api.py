@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any, List, Optional
 
@@ -94,7 +95,6 @@ async def api_create_plan(
 ) -> Plan:
     try:
         next_run = calculate_next_run(
-            str(data.cadence_type.value if hasattr(data.cadence_type, "value") else data.cadence_type),
             data.cron_expression,
             data.timezone,
         )
@@ -103,8 +103,8 @@ async def api_create_plan(
         logger.error(f"Failed to create plan: {exc}")
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"Could not create plan: {exc}",
-        )
+            detail="Could not create plan.",
+        ) from exc
 
 
 @pocketmoney_api_router.get(
@@ -138,11 +138,9 @@ async def api_update_plan(
 
     next_run = None
     if data.cadence_type or data.cron_expression or data.timezone:
-        cadence = data.cadence_type or plan.cadence_type
         cron_expr = data.cron_expression or plan.cron_expression
         tz = data.timezone or plan.timezone
         next_run = calculate_next_run(
-            str(cadence.value if hasattr(cadence, "value") else cadence),
             cron_expr,
             tz,
         )
@@ -192,8 +190,8 @@ async def api_run_plan(
         logger.error(f"Manual plan execution error: {exc}")
         raise HTTPException(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-            detail=f"Execution error: {exc}",
-        )
+            detail="Execution failed.",
+        ) from exc
 
 
 @pocketmoney_api_router.post(
@@ -207,12 +205,17 @@ async def api_simulate_plan(
 ) -> SimulatePlanResponse:
     try:
         return await simulate_plan(plan_id, wallet.wallet.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         logger.error(f"Simulation error: {exc}")
         raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"Simulation error: {exc}",
-        )
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail="Simulation failed.",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +304,14 @@ async def api_webhook_trigger(webhook_token: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=HTTPStatus.FORBIDDEN,
             detail="Disbursement plan is currently paused/inactive.",
+        )
+
+    # Off-schedule triggers must not be able to drain the wallet: an unauthenticated
+    # caller who learns this token may only fire the plan when it is actually due.
+    if plan.next_run_at > datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=HTTPStatus.FORBIDDEN,
+            detail="Disbursement plan is not due yet.",
         )
 
     execution = await execute_plan(plan.id, triggered_by=TriggerType.WEBHOOK.value)
