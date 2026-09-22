@@ -43,7 +43,7 @@ window.app = Vue.createApp({
           description: '',
           cadence_type: 'weekly',
           cron_expression: '0 9 * * 5',
-          timezone: 'UTC',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
           max_sat_limit: null,
           low_balance_threshold: 0,
           telegram_chat_id: null,
@@ -266,7 +266,7 @@ window.app = Vue.createApp({
           description: '',
           cadence_type: 'weekly',
           cron_expression: '0 9 * * 5',
-          timezone: 'UTC',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
           max_sat_limit: null,
           low_balance_threshold: 0,
           telegram_chat_id: null,
@@ -474,17 +474,22 @@ window.app = Vue.createApp({
     },
 
     formatCadence(plan) {
-      if (plan.cadence_type === 'cron') return `Cron: ${plan.cron_expression}`
+      // Name the plan timezone when it differs from the viewer's.
+      const tz =
+        plan.timezone && plan.timezone !== Intl.DateTimeFormat().resolvedOptions().timeZone
+          ? ` (${plan.timezone})`
+          : ''
+      if (plan.cadence_type === 'cron') return `Cron: ${plan.cron_expression}${tz}`
       const [m, h, d, mo, w] = plan.cron_expression.split(' ')
       const timeStr = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`
-      if (plan.cadence_type === 'daily') return `Daily at ${timeStr}`
+      if (plan.cadence_type === 'daily') return `Daily at ${timeStr}${tz}`
       if (plan.cadence_type === 'weekly') {
         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
         const dayName = days[parseInt(w, 10)] || 'Fri'
-        return `Weekly (${dayName} ${timeStr})`
+        return `Weekly (${dayName} ${timeStr})${tz}`
       }
       if (plan.cadence_type === 'monthly') {
-        return `Monthly (Day ${d} at ${timeStr})`
+        return `Monthly (Day ${d} at ${timeStr})${tz}`
       }
       return plan.cron_expression
     },
