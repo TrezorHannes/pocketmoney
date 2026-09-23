@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+data/
 .DS_Store
 dist/
 build/

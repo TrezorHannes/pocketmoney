@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import zoneinfo
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -29,16 +28,6 @@ from .models import (
     SimulatePlanResponse,
     TriggerType,
 )
-
-# Concurrency locks per plan ID to prevent duplicate executions
-_plan_locks: dict[str, asyncio.Lock] = {}
-
-
-def _get_plan_lock(plan_id: str) -> asyncio.Lock:
-    if plan_id not in _plan_locks:
-        _plan_locks[plan_id] = asyncio.Lock()
-    return _plan_locks[plan_id]
-
 
 # ---------------------------------------------------------------------------
 # Cron & Recurrence Calculation (Zero-Dependency)
@@ -73,7 +62,6 @@ def _parse_cron_field(field: str, min_val: int, max_val: int) -> set[int]:
 
 
 def calculate_next_run(
-    cadence_type: str,
     cron_expression: str,
     tz_name: str = "UTC",
     from_time: Optional[datetime] = None,
@@ -274,42 +262,26 @@ async def execute_plan(
     plan_id: str,
     triggered_by: str = TriggerType.DAEMON.value,
 ) -> Execution:
-    lock = _get_plan_lock(plan_id)
-    if lock.locked():
-        logger.warning(f"Plan {plan_id} is already executing, skipping concurrent run.")
+    # Atomic DB claim: covers same-process and multi-worker concurrency.
+    claimed = await claim_plan_running(plan_id)
+    if not claimed:
+        plan = await get_plan(plan_id)
+        logger.warning(f"Plan {plan_id} is already running, skipping.")
         return await create_execution(
-            wallet_id="unknown",
+            wallet_id=plan.wallet_id if plan else "unknown",
             plan_id=plan_id,
             triggered_by=triggered_by,
             status=ExecutionStatus.FAILED.value,
             total_sats=0,
             total_fees_msat=0,
             details=[],
-            error_message="Plan is already running concurrently.",
+            error_message="Plan is already running in another worker.",
         )
 
-    async with lock:
-        # DB-level claim guard for multi-process / multi-worker deployments.
-        # The asyncio.Lock above handles same-process concurrency; this handles
-        # separate worker processes sharing the same database.
-        claimed = await claim_plan_running(plan_id)
-        if not claimed:
-            logger.warning(f"Plan {plan_id} claimed by another worker, skipping.")
-            return await create_execution(
-                wallet_id="unknown",
-                plan_id=plan_id,
-                triggered_by=triggered_by,
-                status=ExecutionStatus.FAILED.value,
-                total_sats=0,
-                total_fees_msat=0,
-                details=[],
-                error_message="Plan is already running in another worker.",
-            )
-
-        try:
-            return await _execute_plan_inner(plan_id, triggered_by)
-        finally:
-            await release_plan_running(plan_id)
+    try:
+        return await _execute_plan_inner(plan_id, triggered_by)
+    finally:
+        await release_plan_running(plan_id)
 
 
 async def _execute_plan_inner(
@@ -318,7 +290,7 @@ async def _execute_plan_inner(
 ) -> Execution:
     """
     Core execution logic for a plan. Called by execute_plan inside the
-    asyncio.Lock + DB is_running claim guard.
+    DB is_running claim guard.
     """
     plan = await get_plan(plan_id)
     if not plan:
@@ -336,7 +308,7 @@ async def _execute_plan_inner(
     items = await get_items_for_plan(plan.id)
     if not items:
         logger.info(f"Plan {plan.name} ({plan_id}) has no line items.")
-        next_run = calculate_next_run(plan.cadence_type, plan.cron_expression, plan.timezone)
+        next_run = calculate_next_run(plan.cron_expression, plan.timezone)
         await update_plan_execution(plan.id, datetime.now(timezone.utc), next_run)
         return await create_execution(
             wallet_id=plan.wallet_id,
@@ -349,11 +321,13 @@ async def _execute_plan_inner(
             error_message="No line items in plan.",
         )
 
-    # Helper to advance schedule if triggered by daemon
-    async def _advance_if_daemon():
-        if triggered_by == TriggerType.DAEMON.value:
+    # Daemon and webhook runs consume the current cycle, so skipped/failed runs
+    # must still move next_run_at forward. Manual runs leave it untouched so the
+    # user can fix the cause (balance, conversion) and retry.
+    async def _advance_if_scheduled():
+        if triggered_by in (TriggerType.DAEMON.value, TriggerType.WEBHOOK.value):
             now_utc = datetime.now(timezone.utc)
-            next_run = calculate_next_run(plan.cadence_type, plan.cron_expression, plan.timezone)
+            next_run = calculate_next_run(plan.cron_expression, plan.timezone)
             await update_plan_execution(plan.id, now_utc, next_run)
 
     # Stage 1: Pre-calculate satoshi costs and verify safety limits
@@ -368,7 +342,7 @@ async def _execute_plan_inner(
                 logger.warning(err)
                 if settings.notify_on_failure:
                     await send_telegram_alert(bot_token, chat_id, f"⚠️ <b>PocketMoney Skipped:</b> {err}")
-                await _advance_if_daemon()
+                await _advance_if_scheduled()
                 return await create_execution(
                     wallet_id=plan.wallet_id,
                     plan_id=plan.id,
@@ -386,7 +360,7 @@ async def _execute_plan_inner(
             logger.error(err)
             if settings.notify_on_failure:
                 await send_telegram_alert(bot_token, chat_id, f"❌ <b>PocketMoney Failed:</b> {err}")
-            await _advance_if_daemon()
+            await _advance_if_scheduled()
             return await create_execution(
                 wallet_id=plan.wallet_id,
                 plan_id=plan.id,
@@ -403,7 +377,7 @@ async def _execute_plan_inner(
         logger.warning(err)
         if settings.notify_on_failure:
             await send_telegram_alert(bot_token, chat_id, f"⚠️ <b>PocketMoney Skipped:</b> {err}")
-        await _advance_if_daemon()
+        await _advance_if_scheduled()
         return await create_execution(
             wallet_id=plan.wallet_id,
             plan_id=plan.id,
@@ -428,7 +402,7 @@ async def _execute_plan_inner(
                 chat_id,
                 f"⚠️ <b>PocketMoney Low Balance:</b> {err} (Plan: {plan.name})",
             )
-        await _advance_if_daemon()
+        await _advance_if_scheduled()
         return await create_execution(
             wallet_id=plan.wallet_id,
             plan_id=plan.id,
@@ -559,7 +533,7 @@ async def _execute_plan_inner(
 
     # Stage 5: Post-execution accounting & next run scheduling
     now_utc = datetime.now(timezone.utc)
-    next_run = calculate_next_run(plan.cadence_type, plan.cron_expression, plan.timezone)
+    next_run = calculate_next_run(plan.cron_expression, plan.timezone)
     await update_plan_execution(plan.id, now_utc, next_run)
 
     execution = await create_execution(
