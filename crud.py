@@ -250,7 +250,7 @@ async def claim_plan_running(plan_id: str) -> bool:
 async def release_plan_running(plan_id: str) -> None:
     """Release the is_running claim so subsequent executions can proceed."""
     await db.execute(
-        f"UPDATE {db.references_schema}plans SET is_running = FALSE WHERE id = :id",
+        f"UPDATE {db.references_schema}plans SET is_running = FALSE, running_since = NULL WHERE id = :id",
         {"id": plan_id},
     )
 

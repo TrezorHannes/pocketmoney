@@ -25,6 +25,8 @@ async def run_pocketmoney_scheduler():
                     try:
                         logger.info(f"PocketMoney: Executing plan '{plan.name}' ({plan.id})...")
                         execution = await execute_plan(plan.id, triggered_by=TriggerType.DAEMON.value)
+                        if execution is None:
+                            continue
                         logger.info(
                             f"PocketMoney: Plan '{plan.name}' executed with status '{execution.status}', "
                             f"total spent: {execution.total_sats:,} sats."

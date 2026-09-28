@@ -26,6 +26,7 @@ from pocketmoney.migrations import (
 )
 from pocketmoney.models import (
     CadenceType,
+    Execution,
     ExecutionStatus,
     ItemCreate,
     Plan,
@@ -39,6 +40,7 @@ from pocketmoney.services import (
     execute_plan,
     simulate_plan,
 )
+from pocketmoney.views_api import api_webhook_trigger
 
 
 async def _migrate(conn):
@@ -116,7 +118,7 @@ async def test_e2e_plan_execution():
     child1 = await create_wallet(user_id=user.id, wallet_name="Bob Test")
     child2 = await create_wallet(user_id=user.id, wallet_name="Alice Test")
 
-    await update_wallet_balance(parent, 30000, memo="Deposit")
+    await update_wallet_balance(parent, 30000)
     p_check = await get_wallet(parent.id)
     assert p_check and p_check.balance == 30000
 
@@ -202,7 +204,7 @@ async def test_partial_failure_status():
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Partial Test")
     good_child = await create_wallet(user_id=user.id, wallet_name="Good Child")
 
-    await update_wallet_balance(parent, 10000, memo="Deposit")
+    await update_wallet_balance(parent, 10000)
 
     # Use a non-existent wallet ID as the bad recipient — payment will fail
     bad_recipient = "nonexistent-wallet-id-that-does-not-exist"
@@ -271,12 +273,21 @@ async def test_db_claim_guard():
     claimed_first = await claim_plan_running(plan.id)
     assert claimed_first is True, "First claim must succeed"
 
+    # Expected scheduler collisions must not create audit failures.
+    assert await execute_plan(plan.id, triggered_by=TriggerType.DAEMON.value) is None
+    assert await get_executions(wallet.id, plan_id=plan.id) == []
+
     # Second claim (simulating a concurrent worker) must fail
     claimed_second = await claim_plan_running(plan.id)
     assert claimed_second is False, "Concurrent claim must be rejected — plan is already running"
 
     # Release the claim
     await release_plan_running(plan.id)
+    claim = await db.fetchone(
+        f"SELECT is_running, running_since FROM {db.references_schema}plans WHERE id = :id",
+        {"id": plan.id},
+    )
+    assert claim and not claim["is_running"] and claim["running_since"] is None
 
     # After release, a new claim must succeed
     claimed_after_release = await claim_plan_running(plan.id)
@@ -325,6 +336,7 @@ async def test_postgres_datetime_binds_use_timestamp_placeholder(monkeypatch):
         )
 
     monkeypatch.setattr("lnbits.db.DB_TYPE", "POSTGRES")
+    monkeypatch.setattr(db, "type", "POSTGRES")
     monkeypatch.setattr(db, "execute", capture_execute)
     monkeypatch.setattr(db, "fetchall", capture_fetchall)
     monkeypatch.setattr("pocketmoney.crud.get_plan", fake_get_plan)
@@ -335,6 +347,63 @@ async def test_postgres_datetime_binds_use_timestamp_placeholder(monkeypatch):
     await create_plan("wallet-id", PlanCreate(name="New plan", items=[]), now)
 
     sql = "\n".join(captured)
-    assert "next_run_at <= to_timestamp(:now)" in sql
-    assert "last_run_at = to_timestamp(:last_run_at)" in sql
-    assert "next_run_at = to_timestamp(:next_run_at)" in sql
+    assert "next_run_at <= (to_timestamp(:now) AT TIME ZONE 'UTC')" in sql
+    assert "last_run_at = (to_timestamp(:last_run_at) AT TIME ZONE 'UTC')" in sql
+    assert "next_run_at = (to_timestamp(:next_run_at) AT TIME ZONE 'UTC')" in sql
+
+
+@pytest.mark.anyio
+async def test_postgres_timestamp_migration_uses_each_row_timezone():
+    statements: list[str] = []
+
+    class CaptureDB:
+        type = "POSTGRES"
+        references_schema = "pocketmoney."
+
+        async def execute(self, query):
+            statements.append(query)
+
+    await m004_timestamps_in_utc(CaptureDB())
+
+    assert len(statements) == 2
+    assert "next_run_at AT TIME ZONE current_setting('TimeZone')" in statements[0]
+    assert "executed_at AT TIME ZONE current_setting('TimeZone')" in statements[1]
+
+
+@pytest.mark.anyio
+async def test_webhook_can_trigger_a_plan_before_its_next_schedule(monkeypatch):
+    now = datetime.now(timezone.utc)
+    plan = Plan(
+        id="plan-id",
+        wallet_id="wallet-id",
+        name="External event",
+        cadence_type="daily",
+        cron_expression="0 9 * * *",
+        webhook_token="secret",
+        next_run_at=now + timedelta(days=1),
+    )
+    execution = Execution(
+        id="execution-id",
+        plan_id=plan.id,
+        wallet_id=plan.wallet_id,
+        triggered_by=TriggerType.WEBHOOK.value,
+        status=ExecutionStatus.SUCCESS.value,
+        total_sats=1,
+    )
+    calls = []
+
+    async def fake_get_plan_by_webhook(token):
+        assert token == plan.webhook_token
+        return plan
+
+    async def fake_execute_plan(plan_id, triggered_by):
+        calls.append((plan_id, triggered_by))
+        return execution
+
+    monkeypatch.setattr("pocketmoney.views_api.get_plan_by_webhook", fake_get_plan_by_webhook)
+    monkeypatch.setattr("pocketmoney.views_api.execute_plan", fake_execute_plan)
+
+    result = await api_webhook_trigger(plan.webhook_token)
+
+    assert calls == [(plan.id, TriggerType.WEBHOOK.value)]
+    assert result["status"] == ExecutionStatus.SUCCESS.value

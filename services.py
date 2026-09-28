@@ -261,10 +261,14 @@ async def simulate_plan(plan_id: str, wallet_id: str) -> SimulatePlanResponse:
 async def execute_plan(
     plan_id: str,
     triggered_by: str = TriggerType.DAEMON.value,
-) -> Execution:
+) -> Execution | None:
     # Atomic DB claim: covers same-process and multi-worker concurrency.
     claimed = await claim_plan_running(plan_id)
     if not claimed:
+        if triggered_by == TriggerType.DAEMON.value:
+            logger.debug(f"Plan {plan_id} is already running; skipping daemon poll.")
+            return None
+
         plan = await get_plan(plan_id)
         logger.warning(f"Plan {plan_id} is already running, skipping.")
         return await create_execution(

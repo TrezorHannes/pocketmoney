@@ -110,23 +110,22 @@ async def m004_timestamps_in_utc(db: Connection):
     """Move schedule timestamps written before crud pinned writes to UTC.
 
     Postgres rendered the epoch in the session timezone while LNbits reads
-    TIMESTAMP columns back as UTC, shifting every date by the offset.
+    TIMESTAMP columns back as UTC, shifting every date by the offset. Interpret
+    each value in the session timezone so historical DST offsets are respected.
     """
-    if db.type == "SQLITE":
-        return  # epochs, already UTC
+    if db.type != "POSTGRES":
+        return  # SQLite epochs were UTC; CockroachDB used a different bind path.
 
-    # The shift the old writer applied: session-local wall clock minus UTC.
-    shift = "CAST(now() AS TIMESTAMP) - (now() AT TIME ZONE 'UTC')"
     await db.execute(
         f"""
         UPDATE {db.references_schema}plans SET
-            next_run_at = next_run_at - ({shift}),
-            last_run_at = last_run_at - ({shift});
+            next_run_at = (next_run_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC',
+            last_run_at = (last_run_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC';
         """
     )
     await db.execute(
         f"""
         UPDATE {db.references_schema}executions SET
-            executed_at = executed_at - ({shift});
+            executed_at = (executed_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC';
         """
     )

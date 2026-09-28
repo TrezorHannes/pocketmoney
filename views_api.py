@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any, List, Optional
 
@@ -185,13 +184,19 @@ async def api_run_plan(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Plan not found")
 
     try:
-        return await execute_plan(plan_id, triggered_by=TriggerType.MANUAL.value)
+        execution = await execute_plan(plan_id, triggered_by=TriggerType.MANUAL.value)
     except Exception as exc:
         logger.error(f"Manual plan execution error: {exc}")
         raise HTTPException(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             detail="Execution failed.",
         ) from exc
+    if execution is None:
+        raise HTTPException(
+            status_code=HTTPStatus.CONFLICT,
+            detail="Disbursement plan is already running.",
+        )
+    return execution
 
 
 @pocketmoney_api_router.post(
@@ -306,15 +311,12 @@ async def api_webhook_trigger(webhook_token: str) -> dict[str, Any]:
             detail="Disbursement plan is currently paused/inactive.",
         )
 
-    # Off-schedule triggers must not be able to drain the wallet: an unauthenticated
-    # caller who learns this token may only fire the plan when it is actually due.
-    if plan.next_run_at > datetime.now(timezone.utc):
-        raise HTTPException(
-            status_code=HTTPStatus.FORBIDDEN,
-            detail="Disbursement plan is not due yet.",
-        )
-
     execution = await execute_plan(plan.id, triggered_by=TriggerType.WEBHOOK.value)
+    if execution is None:
+        raise HTTPException(
+            status_code=HTTPStatus.CONFLICT,
+            detail="Disbursement plan is already running.",
+        )
     return {
         "status": execution.status,
         "plan": plan.name,
