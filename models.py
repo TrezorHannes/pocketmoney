@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -113,16 +112,6 @@ class Execution(BaseModel):
     details: List[dict[str, Any]] = Field(default_factory=list)
     error_message: Optional[str] = None
     executed_at: Optional[datetime] = None
-
-    @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "Execution":
-        d = dict(row)
-        if isinstance(d.get("details"), str):
-            try:
-                d["details"] = json.loads(d["details"])
-            except Exception:
-                d["details"] = []
-        return cls(**d)
 
 
 class PocketMoneySettings(BaseModel):

@@ -91,3 +91,41 @@ async def m002_add_plan_is_running(db: Connection):
         ADD COLUMN is_running BOOLEAN DEFAULT FALSE;
         """
     )
+
+
+async def m003_add_plan_running_since(db: Connection):
+    """
+    Record when a worker claimed a plan, so a crashed worker's claim can be
+    reclaimed instead of blocking the plan forever (see claim_plan_running).
+    """
+    await db.execute(
+        f"""
+        ALTER TABLE {db.references_schema}plans
+        ADD COLUMN running_since TIMESTAMP DEFAULT NULL;
+        """
+    )
+
+
+async def m004_timestamps_in_utc(db: Connection):
+    """Move schedule timestamps written before crud pinned writes to UTC.
+
+    Postgres rendered the epoch in the session timezone while LNbits reads
+    TIMESTAMP columns back as UTC, shifting every date by the offset. Interpret
+    each value in the session timezone so historical DST offsets are respected.
+    """
+    if db.type != "POSTGRES":
+        return  # SQLite epochs were UTC; CockroachDB used a different bind path.
+
+    await db.execute(
+        f"""
+        UPDATE {db.references_schema}plans SET
+            next_run_at = (next_run_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC',
+            last_run_at = (last_run_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC';
+        """
+    )
+    await db.execute(
+        f"""
+        UPDATE {db.references_schema}executions SET
+            executed_at = (executed_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC';
+        """
+    )

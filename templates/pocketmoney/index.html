@@ -953,6 +953,7 @@
 
           <div class="text-caption q-mt-sm" :class="$q.dark.isActive ? 'text-blue-3' : 'text-indigo-9'">
             <b>Computed Cron:</b> <code>{{ planDialog.data.cron_expression }}</code>
+            in {{ planDialog.data.timezone }}
           </div>
         </q-card>
 
@@ -1270,4 +1271,3 @@
 </q-dialog>
 {% endraw %}
 {% endblock %}
-

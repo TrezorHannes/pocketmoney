@@ -10,6 +10,11 @@ urls = { Repository = "https://github.com/TrezorHannes/pocketmoney" }
 
 dependencies = [ "lnbits>1" ]
 
+[dependency-groups]
+dev = [
+    "pytest"
+]
+
 [tool.ruff]
 line-length = 88
 

@@ -7,19 +7,31 @@ from lnbits.core.crud import create_wallet, get_wallet
 from lnbits.core.services import create_user_account
 from lnbits.core.services.payments import update_wallet_balance
 from pocketmoney.crud import (
+    _utc_ts,
     claim_plan_running,
     create_plan,
     db,
+    get_due_plans,
     get_executions,
     get_plan,
     release_plan_running,
+    update_plan,
+    update_plan_execution,
 )
-from pocketmoney.migrations import m001_initial, m002_add_plan_is_running
+from pocketmoney.migrations import (
+    m001_initial,
+    m002_add_plan_is_running,
+    m003_add_plan_running_since,
+    m004_timestamps_in_utc,
+)
 from pocketmoney.models import (
     CadenceType,
+    Execution,
     ExecutionStatus,
     ItemCreate,
+    Plan,
     PlanCreate,
+    PlanUpdate,
     TriggerType,
 )
 from pocketmoney.services import (
@@ -28,6 +40,16 @@ from pocketmoney.services import (
     execute_plan,
     simulate_plan,
 )
+from pocketmoney.views_api import api_webhook_trigger
+
+
+async def _migrate(conn):
+    await m001_initial(conn)
+    for migration in (m002_add_plan_is_running, m003_add_plan_running_since, m004_timestamps_in_utc):
+        try:
+            await migration(conn)
+        except Exception:
+            pass  # Column may already exist from a prior test run
 
 
 def test_parse_cron_field():
@@ -38,9 +60,21 @@ def test_parse_cron_field():
     assert _parse_cron_field("1-5/2", 0, 5) == {1, 3, 5}
 
 
+def test_utc_timestamp_placeholder():
+    """SQLite stores epochs (UTC already); other databases pin to UTC."""
+    assert _utc_ts("now") == ":now"
+    original_type = db.type
+    try:
+        db.type = "COCKROACH"
+        expected = f"({db.timestamp_placeholder('now')} AT TIME ZONE 'UTC')"
+        assert _utc_ts("now") == expected
+    finally:
+        db.type = original_type
+
+
 def test_calculate_next_run_weekly():
     ref_time = datetime(2026, 9, 18, 10, 0, 0, tzinfo=timezone.utc)
-    next_run = calculate_next_run("weekly", "0 9 * * 5", "UTC", from_time=ref_time)
+    next_run = calculate_next_run("0 9 * * 5", "UTC", from_time=ref_time)
     assert next_run.weekday() == 4
     assert next_run.hour == 9
     assert next_run.minute == 0
@@ -49,7 +83,7 @@ def test_calculate_next_run_weekly():
 
 def test_calculate_next_run_daily():
     ref_time = datetime(2026, 9, 18, 8, 0, 0, tzinfo=timezone.utc)
-    next_run = calculate_next_run("daily", "0 9 * * *", "UTC", from_time=ref_time)
+    next_run = calculate_next_run("0 9 * * *", "UTC", from_time=ref_time)
     assert next_run.day == 18
     assert next_run.hour == 9
     assert next_run.minute == 0
@@ -77,18 +111,14 @@ def test_plan_create_model():
 async def test_e2e_plan_execution():
     await migrate_databases()
     async with db.connect() as conn:
-        await m001_initial(conn)
-        try:
-            await m002_add_plan_is_running(conn)
-        except Exception:
-            pass  # Column may already exist from a prior test run
+        await _migrate(conn)
 
     user = await create_user_account()
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Test")
     child1 = await create_wallet(user_id=user.id, wallet_name="Bob Test")
     child2 = await create_wallet(user_id=user.id, wallet_name="Alice Test")
 
-    await update_wallet_balance(parent, 30000, memo="Deposit")
+    await update_wallet_balance(parent, 30000)
     p_check = await get_wallet(parent.id)
     assert p_check and p_check.balance == 30000
 
@@ -101,7 +131,7 @@ async def test_e2e_plan_execution():
             ItemCreate(label="Alice", recipient=child2.id, amount=Decimal("4000"), currency="SAT"),
         ],
     )
-    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(parent.id, plan_data, next_run)
 
     sim = await simulate_plan(plan.id, parent.id)
@@ -138,7 +168,7 @@ async def test_e2e_plan_execution():
             ItemCreate(label="Big Target", recipient=child1.id, amount=Decimal("100000"), currency="SAT"),
         ],
     )
-    large_next_run = calculate_next_run(large_plan_data.cadence_type.value, large_plan_data.cron_expression, large_plan_data.timezone)
+    large_next_run = calculate_next_run(large_plan_data.cron_expression, large_plan_data.timezone)
     large_plan = await create_plan(parent.id, large_plan_data, large_next_run)
     failed_exec = await execute_plan(large_plan.id, triggered_by="manual")
 
@@ -150,7 +180,7 @@ async def test_e2e_plan_execution():
 
     past_due = datetime.now(timezone.utc) - timedelta(minutes=5)
     await db.execute(
-        f"UPDATE {db.references_schema}plans SET next_run_at = :past_due WHERE id = :id",
+        f"UPDATE {db.references_schema}plans SET next_run_at = {db.timestamp_placeholder('past_due')} WHERE id = :id",
         {"past_due": past_due, "id": large_plan.id},
     )
     daemon_exec = await execute_plan(large_plan.id, triggered_by=TriggerType.DAEMON.value)
@@ -168,17 +198,13 @@ async def test_partial_failure_status():
     """
     await migrate_databases()
     async with db.connect() as conn:
-        await m001_initial(conn)
-        try:
-            await m002_add_plan_is_running(conn)
-        except Exception:
-            pass  # Column may already exist from a prior test run
+        await _migrate(conn)
 
     user = await create_user_account()
     parent = await create_wallet(user_id=user.id, wallet_name="Parent Partial Test")
     good_child = await create_wallet(user_id=user.id, wallet_name="Good Child")
 
-    await update_wallet_balance(parent, 10000, memo="Deposit")
+    await update_wallet_balance(parent, 10000)
 
     # Use a non-existent wallet ID as the bad recipient — payment will fail
     bad_recipient = "nonexistent-wallet-id-that-does-not-exist"
@@ -192,7 +218,7 @@ async def test_partial_failure_status():
             ItemCreate(label="BadKid", recipient=bad_recipient, amount=Decimal("500"), currency="SAT"),
         ],
     )
-    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(parent.id, plan_data, next_run)
 
     execution = await execute_plan(plan.id, triggered_by="manual")
@@ -230,11 +256,7 @@ async def test_db_claim_guard():
     """
     await migrate_databases()
     async with db.connect() as conn:
-        await m001_initial(conn)
-        try:
-            await m002_add_plan_is_running(conn)
-        except Exception:
-            pass  # Column may already exist from a prior test run
+        await _migrate(conn)
 
     user = await create_user_account()
     wallet = await create_wallet(user_id=user.id, wallet_name="Claim Test")
@@ -244,12 +266,16 @@ async def test_db_claim_guard():
         cron_expression="0 9 * * 5",
         items=[],
     )
-    next_run = calculate_next_run(plan_data.cadence_type.value, plan_data.cron_expression, plan_data.timezone)
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
     plan = await create_plan(wallet.id, plan_data, next_run)
 
     # First claim should succeed
     claimed_first = await claim_plan_running(plan.id)
     assert claimed_first is True, "First claim must succeed"
+
+    # Expected scheduler collisions must not create audit failures.
+    assert await execute_plan(plan.id, triggered_by=TriggerType.DAEMON.value) is None
+    assert await get_executions(wallet.id, plan_id=plan.id) == []
 
     # Second claim (simulating a concurrent worker) must fail
     claimed_second = await claim_plan_running(plan.id)
@@ -257,10 +283,127 @@ async def test_db_claim_guard():
 
     # Release the claim
     await release_plan_running(plan.id)
+    claim = await db.fetchone(
+        f"SELECT is_running, running_since FROM {db.references_schema}plans WHERE id = :id",
+        {"id": plan.id},
+    )
+    assert claim and not claim["is_running"] and claim["running_since"] is None
 
     # After release, a new claim must succeed
     claimed_after_release = await claim_plan_running(plan.id)
     assert claimed_after_release is True, "Claim after release must succeed"
 
+    # A claim left behind by a worker that died must not wedge the plan forever
+    stale_since = datetime.now(timezone.utc) - timedelta(minutes=30)
+    await db.execute(
+        f"UPDATE {db.references_schema}plans "
+        f"SET running_since = {db.timestamp_placeholder('stale_since')} WHERE id = :id",
+        {"stale_since": stale_since, "id": plan.id},
+    )
+    reclaimed = await claim_plan_running(plan.id)
+    assert reclaimed is True, "Stale claim must be reclaimable"
+
     # Cleanup
     await release_plan_running(plan.id)
+
+
+@pytest.mark.anyio
+async def test_postgres_datetime_binds_use_timestamp_placeholder(monkeypatch):
+    """
+    LNbits converts every datetime bind into a float epoch, which asyncpg
+    rejects for TIMESTAMP columns unless the placeholder is wrapped as
+    to_timestamp(:param). SQLite is unaffected by the wrapper.
+    """
+    captured: list[str] = []
+    now = datetime.now(timezone.utc)
+
+    async def capture_execute(query, values=None):
+        captured.append(query)
+
+    async def capture_fetchall(query, values=None, model=None):
+        captured.append(query)
+        return []
+
+    async def fake_get_plan(*args, **kwargs):
+        return Plan(
+            id="plan-id",
+            wallet_id="wallet-id",
+            name="Postgres bind guard",
+            cadence_type="daily",
+            cron_expression="0 9 * * *",
+            webhook_token="token",
+            next_run_at=now,
+        )
+
+    monkeypatch.setattr("lnbits.db.DB_TYPE", "POSTGRES")
+    monkeypatch.setattr(db, "type", "POSTGRES")
+    monkeypatch.setattr(db, "execute", capture_execute)
+    monkeypatch.setattr(db, "fetchall", capture_fetchall)
+    monkeypatch.setattr("pocketmoney.crud.get_plan", fake_get_plan)
+
+    await get_due_plans(now)
+    await update_plan_execution("plan-id", now, now)
+    await update_plan("plan-id", PlanUpdate(name="Renamed"), next_run_at=now)
+    await create_plan("wallet-id", PlanCreate(name="New plan", items=[]), now)
+
+    sql = "\n".join(captured)
+    assert "next_run_at <= (to_timestamp(:now) AT TIME ZONE 'UTC')" in sql
+    assert "last_run_at = (to_timestamp(:last_run_at) AT TIME ZONE 'UTC')" in sql
+    assert "next_run_at = (to_timestamp(:next_run_at) AT TIME ZONE 'UTC')" in sql
+
+
+@pytest.mark.anyio
+async def test_postgres_timestamp_migration_uses_each_row_timezone():
+    statements: list[str] = []
+
+    class CaptureDB:
+        type = "POSTGRES"
+        references_schema = "pocketmoney."
+
+        async def execute(self, query):
+            statements.append(query)
+
+    await m004_timestamps_in_utc(CaptureDB())
+
+    assert len(statements) == 2
+    assert "next_run_at AT TIME ZONE current_setting('TimeZone')" in statements[0]
+    assert "executed_at AT TIME ZONE current_setting('TimeZone')" in statements[1]
+
+
+@pytest.mark.anyio
+async def test_webhook_can_trigger_a_plan_before_its_next_schedule(monkeypatch):
+    now = datetime.now(timezone.utc)
+    plan = Plan(
+        id="plan-id",
+        wallet_id="wallet-id",
+        name="External event",
+        cadence_type="daily",
+        cron_expression="0 9 * * *",
+        webhook_token="secret",
+        next_run_at=now + timedelta(days=1),
+    )
+    execution = Execution(
+        id="execution-id",
+        plan_id=plan.id,
+        wallet_id=plan.wallet_id,
+        triggered_by=TriggerType.WEBHOOK.value,
+        status=ExecutionStatus.SUCCESS.value,
+        total_sats=1,
+    )
+    calls = []
+
+    async def fake_get_plan_by_webhook(token):
+        assert token == plan.webhook_token
+        return plan
+
+    async def fake_execute_plan(plan_id, triggered_by):
+        calls.append((plan_id, triggered_by))
+        return execution
+
+    monkeypatch.setattr("pocketmoney.views_api.get_plan_by_webhook", fake_get_plan_by_webhook)
+    monkeypatch.setattr("pocketmoney.views_api.execute_plan", fake_execute_plan)
+
+    result = await api_webhook_trigger(plan.webhook_token)
+
+    assert calls == [(plan.id, TriggerType.WEBHOOK.value)]
+    assert result["status"] == ExecutionStatus.SUCCESS.value
