@@ -19,10 +19,10 @@
 
 ## Overview
 
-**PocketMoney** is an open-source [LNbits](https://github.com/lnbits/lnbits) extension that automates recurring payouts in any currency (sats, EUR, USD, etc.) to internal child wallets, external Lightning Addresses, or LNURL-pay endpoints.
+**PocketMoney** is an open-source [LNbits](https://github.com/lnbits/lnbits) extension that automates recurring payouts in any currency (sats, EUR, USD, etc.) to your own internal child wallets, other users' peer wallets on the same LNbits instance, external Lightning Addresses, or LNURL-pay endpoints.
 
 ### Primary Use Cases
-- 👨‍👩‍👧‍👦 **Weekly Family Allowance**: Give \$4, 4,000 sats, or 4€ every Friday morning at 09:00 to child wallets (e.g. Alice, Bob, Charlie) with zero routing fees.
+- 👨‍👩‍👧‍👦 **Weekly Family & Peer Allowances**: Give \$4, 4,000 sats, or 4€ every Friday morning at 09:00 to child wallets (`👛 My Wallet`) or peer wallets on the same LNbits instance (`🆔 Peer Wallet ID`) with zero routing fees.
 - 🖥️ **Recurring Server & SaaS Bills**: Pay your monthly VPS hosting bills automatically via Lightning Address on the 1st of every month.
 - 🌍 **Global Contractor Payroll**: Stream monthly salaries across the globe to contractor Lightning Addresses with fail-closed slippage safety.
 
@@ -32,8 +32,8 @@
 
 - **Multi-Recipient Batches**: Group multiple line items into a single recurring plan executed on a unified schedule.
 - **Universal Recipient Support**:
-  - **Internal LNbits Wallets**: Instant zero-fee ledger transfers without requiring recipient invoice keys.
-  - **External Lightning Addresses & LNURL-pay**: Fresh BOLT11 invoices fetched and paid over the Lightning Network.
+  - **Internal LNbits Wallets (`👛 My Wallet` & `🆔 Peer Wallet ID`)**: Instant zero-fee internal ledger transfers (`internal=True`) to your own wallets or any peer's Wallet ID on the same LNbits instance—with privacy-preserving live verification and without requiring recipient invoice keys.
+  - **External Lightning Addresses & LNURL-pay (`⚡ Lightning`)**: Fresh BOLT11 invoices fetched and paid over the Lightning Network.
 - **JIT Multi-Currency Budgeting**: Set allowances in EUR, USD, GBP, or SAT. Fiat conversions are calculated just-in-time at execution using LNbits' exchange rate providers.
 - **Fail-Closed & Slippage Safeguards**: Optional maximum satoshi limits (`max_sat_limit`) per line item and total plan budget ceilings. If balance is insufficient or rates spike, the plan skips cleanly with zero partial payments.
 - **Zero-Dependency Recurrence Engine**: Supports intuitive presets (`daily`, `weekly`, `monthly`) or full 5-part cron syntax with native timezone support (`zoneinfo`).
@@ -58,7 +58,7 @@ graph TD
     Balance -->|"Insufficient"| SkipBalance["Skip: Alert Telegram & Record Audit Log"]
     Balance -->|"Sufficient"| Dispatch["Universal Recipient Dispatcher"]
 
-    Dispatch -->|"Internal Wallet ID"| Internal["Core: create_invoice + pay_invoice<br/>0 Network Fees"]
+    Dispatch -->|"Internal Wallet ID (Own or Peer)"| Internal["Core: create_invoice(internal=True) + pay_invoice<br/>0 Network Fees"]
     Dispatch -->|"Lightning Address / LNURL"| External["Core: get_pr_from_lnurl + pay_invoice"]
 
     Internal --> Audit["Record in ext_pocketmoney.executions"]
@@ -103,20 +103,23 @@ graph TD
 
 ## API Reference
 
-PocketMoney exposes an authenticated REST API and a public webhook endpoint:
+PocketMoney exposes an authenticated REST API and a public webhook endpoint (interactive Swagger docs available at `/docs#/pocketmoney`):
 
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
+| `GET` | `/pocketmoney/api/v1/currencies` | Public | List allowed currencies on the LNbits instance |
+| `GET` | `/pocketmoney/api/v1/wallets/verify/{wallet_id}` | Admin Key | Privacy-preserving check whether a target Wallet ID exists on this instance and can receive internal payments |
 | `GET` | `/pocketmoney/api/v1/plans` | Admin Key | List all plans for the funding wallet |
 | `POST` | `/pocketmoney/api/v1/plans` | Admin Key | Create a new recurring plan |
 | `GET` | `/pocketmoney/api/v1/plans/{id}` | Admin Key | Fetch details and line items for a plan |
 | `PUT` | `/pocketmoney/api/v1/plans/{id}` | Admin Key | Update plan settings, schedule, or items |
 | `DELETE`| `/pocketmoney/api/v1/plans/{id}` | Admin Key | Delete a plan and its line items |
-| `POST` | `/pocketmoney/api/v1/plans/{id}/simulate` | Admin Key | Dry-run simulation (estimates sats, checks balance) |
+| `POST` | `/pocketmoney/api/v1/plans/{id}/simulate` | Admin Key | Dry-run simulation (estimates sats, checks balance & recipient validity) |
 | `POST` | `/pocketmoney/api/v1/plans/{id}/run` | Admin Key | Trigger immediate execution ("Pay Now") |
 | `GET` | `/pocketmoney/api/v1/history` | Admin Key | Fetch execution audit logs for the wallet |
 | `GET` | `/pocketmoney/api/v1/settings` | Admin Key | Fetch Telegram notification settings |
 | `PUT` | `/pocketmoney/api/v1/settings` | Admin Key | Update Telegram bot token & notification preferences |
+| `POST` | `/pocketmoney/api/v1/settings/test-telegram` | Admin Key | Send a test Telegram notification |
 | `POST` | `/pocketmoney/api/v1/webhook/{token}` | Token | Secret webhook trigger (no API key required) |
 
 ---
