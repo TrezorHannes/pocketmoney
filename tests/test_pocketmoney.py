@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from fastapi import HTTPException
 from lnbits.commands import migrate_databases
 from lnbits.core.crud import create_wallet, get_wallet
 from lnbits.core.services import create_user_account
@@ -39,8 +40,12 @@ from pocketmoney.services import (
     calculate_next_run,
     execute_plan,
     simulate_plan,
+    verify_target_wallet,
 )
-from pocketmoney.views_api import api_webhook_trigger
+from pocketmoney.views_api import (
+    _validate_plan_items_not_self,
+    api_webhook_trigger,
+)
 
 
 async def _migrate(conn):
@@ -407,3 +412,149 @@ async def test_webhook_can_trigger_a_plan_before_its_next_schedule(monkeypatch):
 
     assert calls == [(plan.id, TriggerType.WEBHOOK.value)]
     assert result["status"] == ExecutionStatus.SUCCESS.value
+
+
+@pytest.mark.anyio
+async def test_cross_user_internal_wallet_execution_and_simulation():
+    await migrate_databases()
+    async with db.connect() as conn:
+        await _migrate(conn)
+
+    user_a = await create_user_account()
+    user_b = await create_user_account()
+    assert user_a.id != user_b.id
+
+    wallet_a = await create_wallet(user_id=user_a.id, wallet_name="User A Funding")
+    wallet_b = await create_wallet(user_id=user_b.id, wallet_name="User B Peer")
+
+    await update_wallet_balance(wallet_a, 10000)
+
+    plan_data = PlanCreate(
+        name="Cross-User Allowance",
+        cadence_type=CadenceType.WEEKLY,
+        cron_expression="0 9 * * 5",
+        items=[
+            ItemCreate(
+                label="Peer B",
+                recipient=wallet_b.id,
+                amount=Decimal("2500"),
+                currency="SAT",
+            ),
+        ],
+    )
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
+    plan = await create_plan(wallet_a.id, plan_data, next_run)
+
+    assert len(plan.items) == 1
+    assert plan.items[0].recipient_type == "internal"
+
+    sim = await simulate_plan(plan.id, wallet_a.id)
+    assert sim.can_execute is True
+    assert sim.total_sats == 2500
+    assert sim.balance_after_sats == 7500
+
+    execution = await execute_plan(plan.id, triggered_by="manual")
+    assert execution is not None
+    assert execution.status == ExecutionStatus.SUCCESS.value
+    assert execution.total_sats == 2500
+    assert execution.total_fees_msat == 0
+
+    wallet_a_after = await get_wallet(wallet_a.id)
+    wallet_b_after = await get_wallet(wallet_b.id)
+    assert wallet_a_after and wallet_a_after.balance == 7500
+    assert wallet_b_after and wallet_b_after.balance == 2500
+
+
+@pytest.mark.anyio
+async def test_verify_wallet_endpoint_privacy_and_self_guard():
+    await migrate_databases()
+    async with db.connect() as conn:
+        await _migrate(conn)
+
+    user_a = await create_user_account()
+    user_b = await create_user_account()
+
+    wallet_a = await create_wallet(user_id=user_a.id, wallet_name="Secret Funding Wallet")
+    wallet_a_secondary = await create_wallet(user_id=user_a.id, wallet_name="Own Child Wallet")
+    wallet_b = await create_wallet(user_id=user_b.id, wallet_name="Private Peer Wallet")
+    await update_wallet_balance(wallet_b, 99999)
+
+    # 1. Cross-user valid wallet: must not leak name, balance, user_id, or keys
+    res_peer = await verify_target_wallet(wallet_b.id, wallet_a.id, user_a.id)
+    assert res_peer.valid is True
+    assert res_peer.exists is True
+    assert res_peer.is_self is False
+    assert res_peer.is_same_user is False
+    dumped = res_peer.model_dump() if hasattr(res_peer, "model_dump") else res_peer.dict()
+    assert set(dumped.keys()) == {"valid", "exists", "is_self", "is_same_user", "reason"}
+    assert "Private Peer Wallet" not in str(dumped)
+    assert "99999" not in str(dumped)
+    assert user_b.id not in str(dumped)
+
+    # 2. Same-user secondary wallet
+    res_own = await verify_target_wallet(wallet_a_secondary.id, wallet_a.id, user_a.id)
+    assert res_own.valid is True
+    assert res_own.exists is True
+    assert res_own.is_self is False
+    assert res_own.is_same_user is True
+
+    # 3. Self-funding wallet guard
+    res_self = await verify_target_wallet(wallet_a.id, wallet_a.id, user_a.id)
+    assert res_self.valid is False
+    assert res_self.exists is True
+    assert res_self.is_self is True
+    assert res_self.is_same_user is True
+    assert res_self.reason and "same as the funding wallet" in res_self.reason
+
+    # 4. Non-existent wallet ID
+    res_missing = await verify_target_wallet("nonexistent-wallet-id-0000", wallet_a.id, user_a.id)
+    assert res_missing.valid is False
+    assert res_missing.exists is False
+    assert res_missing.is_self is False
+    assert res_missing.is_same_user is False
+
+
+@pytest.mark.anyio
+async def test_self_payment_rejected_in_simulation_and_execution():
+    await migrate_databases()
+    async with db.connect() as conn:
+        await _migrate(conn)
+
+    user_a = await create_user_account()
+    wallet_a = await create_wallet(user_id=user_a.id, wallet_name="Self Guard Wallet")
+    await update_wallet_balance(wallet_a, 5000)
+
+    self_item = ItemCreate(
+        label="Myself",
+        recipient=wallet_a.id,
+        amount=Decimal("1000"),
+        currency="SAT",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_plan_items_not_self([self_item], wallet_a.id)
+    assert exc_info.value.status_code == 400
+    assert "same as the funding wallet" in str(exc_info.value.detail)
+
+    plan_data = PlanCreate(
+        name="Self Loop Plan",
+        cadence_type=CadenceType.WEEKLY,
+        cron_expression="0 9 * * 5",
+        items=[self_item],
+    )
+    next_run = calculate_next_run(plan_data.cron_expression, plan_data.timezone)
+    plan = await create_plan(wallet_a.id, plan_data, next_run)
+
+    sim = await simulate_plan(plan.id, wallet_a.id)
+    assert sim.can_execute is False
+    assert sim.items[0].valid is False
+    assert any("same as the funding wallet" in w for w in sim.warnings)
+
+    execution = await execute_plan(plan.id, triggered_by="manual")
+    assert execution is not None
+    assert execution.status == ExecutionStatus.FAILED.value
+    assert execution.total_sats == 0
+
+    wallet_after = await get_wallet(wallet_a.id)
+    assert wallet_after and wallet_after.balance == 5000
+

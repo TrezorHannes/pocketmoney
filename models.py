@@ -154,3 +154,12 @@ class SimulatePlanResponse(BaseModel):
     balance_after_sats: int
     items: List[SimulateItemResult]
     warnings: List[str] = Field(default_factory=list)
+
+
+class WalletVerifyResponse(BaseModel):
+    valid: bool
+    exists: bool
+    is_self: bool = False
+    is_same_user: bool = False
+    reason: Optional[str] = None
+

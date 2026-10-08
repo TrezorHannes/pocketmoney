@@ -22,6 +22,7 @@ from .crud import (
 )
 from .models import (
     Execution,
+    ItemCreate,
     Plan,
     PlanCreate,
     PlanUpdate,
@@ -30,19 +31,35 @@ from .models import (
     SimulatePlanResponse,
     TestTelegramRequest,
     TriggerType,
+    WalletVerifyResponse,
 )
 from .services import (
     calculate_next_run,
     execute_plan,
     send_telegram_alert,
     simulate_plan,
+    verify_target_wallet,
 )
 
 pocketmoney_api_router = APIRouter()
 
 
+def _validate_plan_items_not_self(
+    items: Optional[List[ItemCreate]],
+    source_wallet_id: str,
+) -> None:
+    if not items:
+        return
+    for item in items:
+        if item.recipient.strip() == source_wallet_id:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Recipient wallet cannot be the same as the funding wallet.",
+            )
+
+
 # ---------------------------------------------------------------------------
-# Supported Currencies Endpoint
+# Supported Currencies & Wallet Verification Endpoints
 # ---------------------------------------------------------------------------
 
 @pocketmoney_api_router.get(
@@ -65,6 +82,22 @@ async def api_get_currencies() -> list[dict[str, str]]:
             res.append({"code": c, "name": currencies.get(c, c)})
 
     return res
+
+
+@pocketmoney_api_router.get(
+    "/api/v1/wallets/verify/{target_wallet_id}",
+    response_model=WalletVerifyResponse,
+    description="Privacy-preserving check whether an LNbits Wallet ID exists and can receive internal transfers",
+)
+async def api_verify_wallet(
+    target_wallet_id: str,
+    wallet: WalletTypeInfo = Depends(require_admin_key),
+) -> WalletVerifyResponse:
+    return await verify_target_wallet(
+        target_wallet_id=target_wallet_id,
+        source_wallet_id=wallet.wallet.id,
+        source_user_id=wallet.wallet.user,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +125,7 @@ async def api_create_plan(
     data: PlanCreate,
     wallet: WalletTypeInfo = Depends(require_admin_key),
 ) -> Plan:
+    _validate_plan_items_not_self(data.items, wallet.wallet.id)
     try:
         next_run = calculate_next_run(
             data.cron_expression,
@@ -134,6 +168,8 @@ async def api_update_plan(
     plan = await get_plan(plan_id, wallet.wallet.id)
     if not plan:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Plan not found")
+
+    _validate_plan_items_not_self(data.items, wallet.wallet.id)
 
     next_run = None
     if data.cadence_type or data.cron_expression or data.timezone:
