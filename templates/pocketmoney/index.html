@@ -516,7 +516,7 @@
                   <li class="q-mb-xs"><b>🤖 Proactive Alerts</b>: Instant Telegram delivery for completions, slippage skips, and low-balance warnings.</li>
                 </ul>
                 <div class="row items-center justify-between q-mt-md text-grey">
-                  <span>Version: <b>v0.1.1</b></span>
+                  <span>Version: <b>v0.1.3</b></span>
                   <q-btn flat dense size="xs" icon="code" label="GitHub" type="a" href="https://github.com/TrezorHannes/pocketmoney" target="_blank"></q-btn>
                 </div>
               </q-card-section>
@@ -555,7 +555,8 @@
                     <div class="pm-text-body">
                       Add one or more recipients per plan:
                       <ul class="q-pl-md q-my-xs">
-                        <li><b>👛 Internal Wallet</b>: Pick a child or peer wallet under your account. Zero routing fees and instant settlement.</li>
+                        <li><b>👛 My Wallet</b>: Pick one of your own secondary wallets. Zero routing fees and instant settlement.</li>
+                        <li><b>🆔 Peer Wallet ID</b>: Paste any co-user's LNbits Wallet ID on this instance for instant 0-fee internal transfers.</li>
                         <li><b>⚡ Lightning Address / LNURL</b>: Enter any <code class="pm-code-badge">user@domain.com</code> or LNURL-pay string.</li>
                       </ul>
                       Choose the amount and currency (e.g. 5.00 EUR or 5,000 sats).
@@ -739,6 +740,24 @@
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
                           <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans/&lt;plan_id&gt;/simulate -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
                           <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/plans/<plan_id>/simulate -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
+                            <q-tooltip>Copy curl command</q-tooltip>
+                          </q-btn>
+                        </div>
+                      </q-card-section>
+                    </q-card>
+                  </q-expansion-item>
+
+                  <!-- GET /wallets/verify/{target_wallet_id} -->
+                  <q-expansion-item group="api" dense expand-separator label="Verify Target Wallet ID">
+                    <q-card class="bg-grey-1" :class="$q.dark.isActive ? 'bg-grey-9' : 'bg-grey-1'">
+                      <q-card-section class="text-caption q-pa-sm">
+                        <div><code><span class="text-primary text-weight-bold">GET</span> /pocketmoney/api/v1/wallets/verify/&lt;wallet_id&gt;</code></div>
+                        <div class="text-weight-bold q-mt-xs">Headers:</div>
+                        <code>{"X-Api-Key": &lt;admin_key&gt;}</code>
+                        <div class="text-weight-bold q-mt-xs">Curl example:</div>
+                        <div class="row items-center q-gutter-x-xs q-mt-xs">
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X GET {{ locationOrigin }}/pocketmoney/api/v1/wallets/verify/&lt;wallet_id&gt; -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}"</code>
+                          <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X GET ' + locationOrigin + '/pocketmoney/api/v1/wallets/verify/<wallet_id> -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot;')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
                         </div>
@@ -1060,7 +1079,8 @@
                 hide-bottom-space
                 v-model="item.recipientMode"
                 :options="[
-                  { label: '👛 Internal', value: 'wallet' },
+                  { label: '👛 My Wallet', value: 'wallet' },
+                  { label: '🆔 Peer Wallet ID', value: 'peer_wallet' },
                   { label: '⚡ Lightning', value: 'manual' }
                 ]"
                 emit-value
@@ -1072,7 +1092,7 @@
 
             <!-- Recipient Target -->
             <div class="col-12 col-sm-4">
-              <!-- Internal wallet picker -->
+              <!-- Own internal wallet picker -->
               <q-select
                 v-if="item.recipientMode === 'wallet'"
                 outlined
@@ -1083,11 +1103,52 @@
                 emit-value
                 map-options
                 label="Target Wallet *"
-                :rules="[val => !!val || 'Please select a wallet']"
+                :rules="[
+                  val => !!val || 'Please select a wallet',
+                  val => val !== selectedWallet || 'Cannot pay the funding wallet itself'
+                ]"
                 @update:model-value="val => onInternalWalletSelected(item, val)"
               ></q-select>
 
-              <!-- Manual input: Lightning Address / LNURL / Wallet ID -->
+              <!-- Cross-user / Peer LNbits Wallet ID -->
+              <q-input
+                v-else-if="item.recipientMode === 'peer_wallet'"
+                outlined
+                dense
+                hide-bottom-space
+                v-model.trim="item.recipient"
+                label="Peer Wallet ID *"
+                placeholder="Paste LNbits Wallet ID"
+                :rules="[
+                  val => !!val || 'Wallet ID is required',
+                  val => val !== selectedWallet || 'Cannot pay the funding wallet itself',
+                  () => item.peerVerified !== false || (item.peerVerifyReason || 'Wallet ID not found on this LNbits instance')
+                ]"
+                @blur="verifyPeerWallet(item)"
+                @update:model-value="onPeerWalletInput(item)"
+              >
+                <template v-slot:append>
+                  <q-spinner-dots v-if="item.peerVerifying" size="18px" color="primary"></q-spinner-dots>
+                  <q-icon
+                    v-else-if="item.peerVerified === true"
+                    name="verified"
+                    color="positive"
+                    size="20px"
+                  >
+                    <q-tooltip>Verified internal wallet on this LNbits instance (0-fee instant transfer)</q-tooltip>
+                  </q-icon>
+                  <q-icon
+                    v-else-if="item.peerVerified === false"
+                    name="error"
+                    color="negative"
+                    size="20px"
+                  >
+                    <q-tooltip>{{ item.peerVerifyReason || 'Invalid Wallet ID' }}</q-tooltip>
+                  </q-icon>
+                </template>
+              </q-input>
+
+              <!-- Manual input: Lightning Address / LNURL -->
               <q-input
                 v-else
                 outlined

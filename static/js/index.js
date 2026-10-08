@@ -246,11 +246,21 @@ window.app = Vue.createApp({
           low_balance_threshold: plan.low_balance_threshold || 0,
           telegram_chat_id: plan.telegram_chat_id,
           items: (plan.items || []).map(i => {
-            const isInternal = (this.g.user && this.g.user.wallets || []).some(w => w.id === i.recipient)
+            const isOwnWallet = (this.g.user && this.g.user.wallets || []).some(w => w.id === i.recipient)
+            const isExternalLn = i.recipient_type === 'lightning_address' || i.recipient_type === 'lnurl' || (i.recipient && (i.recipient.includes('@') || i.recipient.toLowerCase().startsWith('lnurl')))
+            let mode = 'manual'
+            if (isOwnWallet) {
+              mode = 'wallet'
+            } else if (!isExternalLn) {
+              mode = 'peer_wallet'
+            }
             return {
               label: i.label,
               recipient: i.recipient,
-              recipientMode: isInternal ? 'wallet' : 'manual',
+              recipientMode: mode,
+              peerVerifying: false,
+              peerVerified: mode === 'peer_wallet' ? true : null,
+              peerVerifyReason: '',
               amount: i.amount,
               currency: i.currency,
               memo: i.memo || '',
@@ -271,7 +281,17 @@ window.app = Vue.createApp({
           low_balance_threshold: 0,
           telegram_chat_id: null,
           items: [
-            { label: '', recipient: '', recipientMode: 'wallet', amount: 4, currency: 'EUR', memo: '' },
+            {
+              label: '',
+              recipient: '',
+              recipientMode: 'wallet',
+              peerVerifying: false,
+              peerVerified: null,
+              peerVerifyReason: '',
+              amount: 4,
+              currency: 'EUR',
+              memo: '',
+            },
           ],
         }
         this.planDialog.advancedCron = false
@@ -287,6 +307,9 @@ window.app = Vue.createApp({
         label: '',
         recipient: '',
         recipientMode: 'wallet',
+        peerVerifying: false,
+        peerVerified: null,
+        peerVerifyReason: '',
         amount: 1000,
         currency: 'SAT',
         memo: '',
@@ -296,6 +319,43 @@ window.app = Vue.createApp({
 
     onRecipientModeChange(item) {
       item.recipient = ''
+      item.peerVerifying = false
+      item.peerVerified = null
+      item.peerVerifyReason = ''
+    },
+
+    onPeerWalletInput(item) {
+      item.peerVerified = null
+      item.peerVerifyReason = ''
+    },
+
+    async verifyPeerWallet(item) {
+      const target = (item.recipient || '').trim()
+      if (!target || !this.activeWalletAdminKey) {
+        item.peerVerified = null
+        item.peerVerifyReason = ''
+        return
+      }
+      if (target === this.selectedWallet) {
+        item.peerVerified = false
+        item.peerVerifyReason = 'Target wallet cannot be the same as the funding wallet.'
+        return
+      }
+      item.peerVerifying = true
+      try {
+        const { data } = await LNbits.api.request(
+          'GET',
+          `/pocketmoney/api/v1/wallets/verify/${encodeURIComponent(target)}`,
+          this.activeWalletAdminKey,
+        )
+        item.peerVerified = Boolean(data.valid)
+        item.peerVerifyReason = data.reason || ''
+      } catch (err) {
+        item.peerVerified = false
+        item.peerVerifyReason = 'Could not verify Wallet ID.'
+      } finally {
+        item.peerVerifying = false
+      }
     },
 
     onInternalWalletSelected(item, walletId) {
@@ -336,6 +396,25 @@ window.app = Vue.createApp({
 
       this.planDialog.saving = true
       try {
+        const peerItems = (this.planDialog.data.items || []).filter(
+          i => i.recipientMode === 'peer_wallet',
+        )
+        if (peerItems.length) {
+          await Promise.all(
+            peerItems
+              .filter(i => i.peerVerified !== true)
+              .map(i => this.verifyPeerWallet(i)),
+          )
+          const invalidPeer = peerItems.find(i => i.peerVerified === false)
+          if (invalidPeer) {
+            Quasar.Notify.create({
+              type: 'warning',
+              message: `${invalidPeer.label || 'Recipient'}: ${invalidPeer.peerVerifyReason || 'Invalid Peer Wallet ID'}`,
+            })
+            return
+          }
+        }
+
         if (!this.planDialog.advancedCron) {
           this.updateCronFromPresets()
         } else {

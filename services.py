@@ -27,6 +27,7 @@ from .models import (
     SimulateItemResult,
     SimulatePlanResponse,
     TriggerType,
+    WalletVerifyResponse,
 )
 
 # ---------------------------------------------------------------------------
@@ -173,6 +174,70 @@ async def send_telegram_alert(
 
 
 # ---------------------------------------------------------------------------
+# Privacy-Preserving Target Wallet Verification
+# ---------------------------------------------------------------------------
+
+async def verify_target_wallet(
+    target_wallet_id: str,
+    source_wallet_id: str,
+    source_user_id: Optional[str] = None,
+) -> WalletVerifyResponse:
+    """
+    Verify whether `target_wallet_id` exists on this LNbits instance and can
+    receive internal transfers from `source_wallet_id`.
+
+    Strictly privacy-preserving: never exposes another user's wallet name,
+    balance, user ID, or keys.
+    """
+    clean_target = (target_wallet_id or "").strip()
+    if not clean_target:
+        return WalletVerifyResponse(
+            valid=False,
+            exists=False,
+            is_self=False,
+            is_same_user=False,
+            reason="Wallet ID is required.",
+        )
+
+    if clean_target == source_wallet_id:
+        return WalletVerifyResponse(
+            valid=False,
+            exists=True,
+            is_self=True,
+            is_same_user=True,
+            reason="Target wallet cannot be the same as the funding wallet.",
+        )
+
+    dest_wallet = await get_wallet(clean_target)
+    if not dest_wallet:
+        return WalletVerifyResponse(
+            valid=False,
+            exists=False,
+            is_self=False,
+            is_same_user=False,
+            reason="Wallet ID not found on this LNbits instance.",
+        )
+
+    if not getattr(dest_wallet, "can_receive_payments", True):
+        return WalletVerifyResponse(
+            valid=False,
+            exists=True,
+            is_self=False,
+            is_same_user=bool(source_user_id and dest_wallet.user == source_user_id),
+            reason="Target wallet cannot receive payments.",
+        )
+
+    is_same_user = bool(source_user_id and dest_wallet.user == source_user_id)
+    return WalletVerifyResponse(
+        valid=True,
+        exists=True,
+        is_self=False,
+        is_same_user=is_same_user,
+        reason=None,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Simulation / Dry Run
 # ---------------------------------------------------------------------------
 
@@ -207,11 +272,16 @@ async def simulate_plan(plan_id: str, wallet_id: str) -> SimulatePlanResponse:
 
             # Check recipient validity
             target = item.recipient.strip()
-            dest_wallet = await get_wallet(target)
-            if not dest_wallet and not ("@" in target or target.lower().startswith("lnurl")):
-                warning = "Recipient is not an internal wallet or valid Lightning Address"
+            if target == wallet_id:
+                warning = "Recipient cannot be the same as the funding wallet"
                 valid = False
                 warnings.append(f"{item.label}: {warning}")
+            else:
+                dest_wallet = await get_wallet(target)
+                if not dest_wallet and not ("@" in target or target.lower().startswith("lnurl")):
+                    warning = "Recipient is not an internal wallet or valid Lightning Address"
+                    valid = False
+                    warnings.append(f"{item.label}: {warning}")
 
         except Exception as e:
             valid = False
@@ -449,6 +519,9 @@ async def _execute_plan_inner(
         target = item.recipient.strip()
 
         try:
+            if target == plan.wallet_id:
+                raise ValueError("Cannot send internal payment to the same funding wallet")
+
             # Check if target is an internal wallet
             dest_wallet = await get_wallet(target)
             if dest_wallet:
@@ -458,6 +531,7 @@ async def _execute_plan_inner(
                     wallet_id=target,
                     amount=sats,
                     memo=memo,
+                    internal=True,
                 )
                 bolt11 = inv_res.bolt11 if hasattr(inv_res, "bolt11") else inv_res[1]
                 payment = await pay_invoice(
