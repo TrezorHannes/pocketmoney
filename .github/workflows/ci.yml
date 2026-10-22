@@ -43,6 +43,7 @@ jobs:
         run: |
           cd lnbits
           uv sync
+          uv pip install "certifi>=2026.10.19"
 
       - name: Symlink PocketMoney into LNbits Extensions
         run: |

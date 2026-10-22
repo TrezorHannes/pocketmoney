@@ -8,7 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "Hakuna", email = "hakuna@tunnelsats.com" }]
 urls = { Repository = "https://github.com/TrezorHannes/pocketmoney" }
 
-dependencies = [ "lnbits>1" ]
+dependencies = ["lnbits>1", "certifi>=2026.10.19"]
 
 [dependency-groups]
 dev = [

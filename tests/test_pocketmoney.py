@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
+import certifi
 import pytest
 from fastapi import HTTPException
 from lnbits.commands import migrate_databases
@@ -557,4 +559,14 @@ async def test_self_payment_rejected_in_simulation_and_execution():
 
     wallet_after = await get_wallet(wallet_a.id)
     assert wallet_after and wallet_after.balance == 5000
+
+
+def test_pyproject_declares_hardened_certifi():
+    """Ensure pyproject.toml pins certifi>=2026.10.19 against compromised eMudhra CAs."""
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    content = pyproject_path.read_text(encoding="utf-8")
+    assert '"certifi>=2026.10.19"' in content
+    installed_version = tuple(int(part) for part in certifi.__version__.split("."))
+    assert installed_version >= (2026, 10, 19)
+
 
