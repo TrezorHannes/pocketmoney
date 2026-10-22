@@ -43,6 +43,7 @@ jobs:
         run: |
           cd lnbits
           uv sync
+          uv pip install --python .venv/bin/python --exclude-newer "2099-01-01T00:00:00Z" "certifi>=2026.10.19"
 
       - name: Symlink PocketMoney into LNbits Extensions
         run: |
@@ -52,7 +53,7 @@ jobs:
       - name: Run Ruff Linter
         run: |
           cd lnbits
-          uv run ruff check "$GITHUB_WORKSPACE/pocketmoney"
+          uv run --no-sync ruff check "$GITHUB_WORKSPACE/pocketmoney"
 
       - name: Run Pytest Test Suite
         env:
@@ -60,4 +61,4 @@ jobs:
           FAKE_WALLET_SECRET: ci-test-secret
         run: |
           cd lnbits
-          uv run pytest "$GITHUB_WORKSPACE/pocketmoney/tests" -v
+          uv run --no-sync pytest "$GITHUB_WORKSPACE/pocketmoney/tests" -v
