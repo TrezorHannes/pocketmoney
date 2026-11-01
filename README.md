@@ -35,6 +35,9 @@
   - **Internal LNbits Wallets (`👛 My Wallet` & `🆔 Peer Wallet ID`)**: Instant zero-fee internal ledger transfers (`internal=True`) to your own wallets or any peer's Wallet ID on the same LNbits instance—with privacy-preserving live verification and without requiring recipient invoice keys.
   - **External Lightning Addresses & LNURL-pay (`⚡ Lightning`)**: Fresh BOLT11 invoices fetched and paid over the Lightning Network.
 - **JIT Multi-Currency Budgeting**: Set allowances in EUR, USD, GBP, or SAT. Fiat conversions are calculated just-in-time at execution using LNbits' exchange rate providers.
+- **Structured Accounting Memos & Native Payment Labels**:
+  - Automatically writes structured accounting memos (`{Plan Name} -> {Recipient} ({Destination})` for external/peer transfers and `{Plan Name} -> {Recipient}` for your own secondary wallets) plus `#pocketmoney` tag and `extra` metadata across all LNbits REST API endpoints and CSV exports, while progressively fitting BOLT11 (`<= 639` UTF-8 bytes) and remote LNURL `commentAllowed` limits.
+  - Supports plan-level LNbits Payment `labels` (auto-registered in your LNbits account label catalog with colored badges) without cluttering individual recipient rows.
 - **Fail-Closed & Slippage Safeguards**: Optional maximum satoshi limits (`max_sat_limit`) per line item and total plan budget ceilings. If balance is insufficient or rates spike, the plan skips cleanly with zero partial payments.
 - **Zero-Dependency Recurrence Engine**: Supports intuitive presets (`daily`, `weekly`, `monthly`) or full 5-part cron syntax with native timezone support (`zoneinfo`).
 - **Interactive Quasar / Vue 3 Dashboard**:

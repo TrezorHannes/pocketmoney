@@ -1,3 +1,85 @@
+const PM_LABEL_PALETTE = [
+  '#1976d2',
+  '#26a69a',
+  '#7e57c2',
+  '#ef6c00',
+  '#ec407a',
+  '#43a047',
+  '#00897b',
+  '#5c6bc0',
+  '#8d6e63',
+  '#0288d1',
+]
+const PM_LABEL_REGEX = /^[A-Za-z0-9 ._-]{1,100}$/
+const PM_MAX_LABELS = 20
+
+function defaultPlanLabelColor(name) {
+  let digest = 0
+  const chars = Array.from(name || '')
+  for (let i = 0; i < chars.length; i += 1) {
+    digest += chars[i].codePointAt(0) * (i + 1)
+  }
+  return PM_LABEL_PALETTE[digest % PM_LABEL_PALETTE.length]
+}
+
+function parsePlanScheduleToDialog(cadenceType, cronExpression) {
+  const defaults = {
+    advancedCron: false,
+    presetCadence: 'weekly',
+    presetWeekday: '5',
+    presetMonthDay: 1,
+    presetTime: '09:00',
+  }
+  if (cadenceType === 'cron') {
+    return { ...defaults, advancedCron: true }
+  }
+
+  const parts = String(cronExpression || '').trim().split(/\s+/)
+  if (parts.length !== 5) {
+    return { ...defaults, advancedCron: true }
+  }
+
+  const [mStr, hStr, dStr, moStr, wStr] = parts
+  if (!/^\d+$/.test(mStr) || !/^\d+$/.test(hStr) || moStr !== '*') {
+    return { ...defaults, advancedCron: true }
+  }
+
+  const m = parseInt(mStr, 10)
+  const h = parseInt(hStr, 10)
+  if (m < 0 || m > 59 || h < 0 || h > 23) {
+    return { ...defaults, advancedCron: true }
+  }
+  const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+
+  if (cadenceType === 'daily' && dStr === '*' && wStr === '*') {
+    return { ...defaults, presetCadence: 'daily', presetTime: timeStr }
+  }
+
+  if (cadenceType === 'weekly' && dStr === '*' && /^[0-7]$/.test(wStr)) {
+    const normWeekday = wStr === '7' ? '0' : wStr
+    return {
+      ...defaults,
+      presetCadence: 'weekly',
+      presetWeekday: normWeekday,
+      presetTime: timeStr,
+    }
+  }
+
+  if (cadenceType === 'monthly' && wStr === '*' && /^\d+$/.test(dStr)) {
+    const dayNum = parseInt(dStr, 10)
+    if (dayNum >= 1 && dayNum <= 31) {
+      return {
+        ...defaults,
+        presetCadence: 'monthly',
+        presetMonthDay: dayNum,
+        presetTime: timeStr,
+      }
+    }
+  }
+
+  return { ...defaults, advancedCron: true }
+}
+
 window.app = Vue.createApp({
   el: '#vue',
   mixins: [windowMixin],
@@ -47,6 +129,7 @@ window.app = Vue.createApp({
           max_sat_limit: null,
           low_balance_threshold: 0,
           telegram_chat_id: null,
+          labels: [],
           items: [],
         },
       },
@@ -101,6 +184,15 @@ window.app = Vue.createApp({
 
     locationOrigin() {
       return (typeof window !== 'undefined' && window.location) ? window.location.origin : ''
+    },
+
+    accountLabelOptions() {
+      const user = (this.g && this.g.user) || (typeof window !== 'undefined' && window.g && window.g.user)
+      const userLabels = (user && user.extra && Array.isArray(user.extra.labels))
+        ? user.extra.labels.map(l => l.name).filter(Boolean)
+        : []
+      const selected = Array.isArray(this.planDialog.data.labels) ? this.planDialog.data.labels : []
+      return Array.from(new Set([...userLabels, ...selected]))
     },
   },
 
@@ -233,8 +325,75 @@ window.app = Vue.createApp({
       }
     },
 
+    getLabelColor(name) {
+      const user = (this.g && this.g.user) || (typeof window !== 'undefined' && window.g && window.g.user)
+      const found = (user && user.extra && Array.isArray(user.extra.labels))
+        ? user.extra.labels.find(l => l.name === name)
+        : null
+      return (found && found.color) ? found.color : defaultPlanLabelColor(name)
+    },
+
+    isLightLabelColor(hex) {
+      const clean = String(hex || '').replace('#', '')
+      if (clean.length !== 6) return false
+      const r = parseInt(clean.slice(0, 2), 16)
+      const g = parseInt(clean.slice(2, 4), 16)
+      const b = parseInt(clean.slice(4, 6), 16)
+      return (r * 299 + g * 587 + b * 114) / 1000 > 165
+    },
+
+    onCreatePlanLabel(inputValue, doneFn) {
+      const trimmed = String(inputValue || '').trim()
+      if (!trimmed) return
+      if (!PM_LABEL_REGEX.test(trimmed)) {
+        Quasar.Notify.create({
+          type: 'warning',
+          message: "Invalid label: use letters, digits, spaces, '.', '_', or '-' (max 100 chars).",
+        })
+        return
+      }
+      const existing = Array.isArray(this.planDialog.data.labels) ? this.planDialog.data.labels : []
+      if (!existing.includes(trimmed) && existing.length >= PM_MAX_LABELS) {
+        Quasar.Notify.create({
+          type: 'warning',
+          message: `At most ${PM_MAX_LABELS} labels allowed per plan.`,
+        })
+        return
+      }
+      doneFn(trimmed, 'add-unique')
+    },
+
+    syncLabelsToUserExtra(labels) {
+      if (!Array.isArray(labels) || !labels.length) return
+      const user = (this.g && this.g.user) || (typeof window !== 'undefined' && window.g && window.g.user)
+      if (!user) return
+      if (!user.extra) user.extra = {}
+      if (!Array.isArray(user.extra.labels)) user.extra.labels = []
+      const known = new Set(user.extra.labels.map(l => l.name))
+      for (const name of labels) {
+        if (name && !known.has(name)) {
+          user.extra.labels.push({
+            name,
+            color: defaultPlanLabelColor(name),
+            description: '',
+          })
+          known.add(name)
+        }
+      }
+    },
+
     openPlanDialog(plan = null) {
       if (plan) {
+        const hydratedSchedule = parsePlanScheduleToDialog(
+          plan.cadence_type,
+          plan.cron_expression,
+        )
+        this.planDialog.advancedCron = hydratedSchedule.advancedCron
+        this.planDialog.presetCadence = hydratedSchedule.presetCadence
+        this.planDialog.presetWeekday = hydratedSchedule.presetWeekday
+        this.planDialog.presetMonthDay = hydratedSchedule.presetMonthDay
+        this.planDialog.presetTime = hydratedSchedule.presetTime
+
         this.planDialog.data = {
           id: plan.id,
           name: plan.name,
@@ -242,9 +401,10 @@ window.app = Vue.createApp({
           cadence_type: plan.cadence_type,
           cron_expression: plan.cron_expression,
           timezone: plan.timezone || 'UTC',
-          max_sat_limit: plan.max_sat_limit,
+          max_sat_limit: plan.max_sat_limit ?? null,
           low_balance_threshold: plan.low_balance_threshold || 0,
-          telegram_chat_id: plan.telegram_chat_id,
+          telegram_chat_id: plan.telegram_chat_id ?? null,
+          labels: Array.isArray(plan.labels) ? [...plan.labels] : [],
           items: (plan.items || []).map(i => {
             const isOwnWallet = (this.g.user && this.g.user.wallets || []).some(w => w.id === i.recipient)
             const isExternalLn = i.recipient_type === 'lightning_address' || i.recipient_type === 'lnurl' || (i.recipient && (i.recipient.includes('@') || i.recipient.toLowerCase().startsWith('lnurl')))
@@ -268,7 +428,6 @@ window.app = Vue.createApp({
             }
           }),
         }
-        this.planDialog.advancedCron = plan.cadence_type === 'cron'
       } else {
         this.planDialog.data = {
           id: null,
@@ -280,6 +439,7 @@ window.app = Vue.createApp({
           max_sat_limit: null,
           low_balance_threshold: 0,
           telegram_chat_id: null,
+          labels: [],
           items: [
             {
               label: '',
@@ -297,6 +457,7 @@ window.app = Vue.createApp({
         this.planDialog.advancedCron = false
         this.planDialog.presetCadence = 'weekly'
         this.planDialog.presetWeekday = '5'
+        this.planDialog.presetMonthDay = 1
         this.planDialog.presetTime = '09:00'
       }
       this.planDialog.show = true
@@ -384,7 +545,9 @@ window.app = Vue.createApp({
         this.planDialog.data.cron_expression = `${m} ${h} * * ${w}`
         this.planDialog.data.cadence_type = 'weekly'
       } else if (this.planDialog.presetCadence === 'monthly') {
-        const d = this.planDialog.presetMonthDay || 1
+        const rawDay = parseInt(this.planDialog.presetMonthDay, 10)
+        const d = Number.isNaN(rawDay) ? 1 : Math.min(31, Math.max(1, rawDay))
+        this.planDialog.presetMonthDay = d
         this.planDialog.data.cron_expression = `${m} ${h} ${d} * *`
         this.planDialog.data.cadence_type = 'monthly'
       }
@@ -421,6 +584,23 @@ window.app = Vue.createApp({
           this.planDialog.data.cadence_type = 'cron'
         }
 
+        // Normalize cleared optional numeric inputs so Quasar '' values never trigger HTTP 422
+        const rawCap = this.planDialog.data.max_sat_limit
+        this.planDialog.data.max_sat_limit =
+          rawCap === '' || rawCap === null || rawCap === undefined || Number.isNaN(Number(rawCap))
+            ? null
+            : parseInt(rawCap, 10)
+
+        const rawLow = this.planDialog.data.low_balance_threshold
+        this.planDialog.data.low_balance_threshold =
+          rawLow === '' || rawLow === null || rawLow === undefined || Number.isNaN(Number(rawLow))
+            ? 0
+            : Math.max(0, parseInt(rawLow, 10))
+
+        this.planDialog.data.labels = Array.isArray(this.planDialog.data.labels)
+          ? this.planDialog.data.labels.map(l => String(l || '').trim()).filter(Boolean)
+          : []
+
         if (this.planDialog.data.id) {
           await LNbits.api.request(
             'PUT',
@@ -438,6 +618,7 @@ window.app = Vue.createApp({
           )
           Quasar.Notify.create({ type: 'positive', message: 'Plan created successfully!' })
         }
+        this.syncLabelsToUserExtra(this.planDialog.data.labels)
         this.planDialog.show = false
         await this.fetchPlans()
       } catch (err) {
@@ -559,16 +740,20 @@ window.app = Vue.createApp({
           ? ` (${plan.timezone})`
           : ''
       if (plan.cadence_type === 'cron') return `Cron: ${plan.cron_expression}${tz}`
-      const [m, h, d, mo, w] = plan.cron_expression.split(' ')
-      const timeStr = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`
+      const parsed = parsePlanScheduleToDialog(plan.cadence_type, plan.cron_expression)
+      if (parsed.advancedCron) {
+        return `Cron: ${plan.cron_expression}${tz}`
+      }
+      const timeStr = parsed.presetTime
       if (plan.cadence_type === 'daily') return `Daily at ${timeStr}${tz}`
       if (plan.cadence_type === 'weekly') {
         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-        const dayName = days[parseInt(w, 10)] || 'Fri'
+        const dayIdx = parseInt(parsed.presetWeekday, 10) % 7
+        const dayName = days[dayIdx] || 'Fri'
         return `Weekly (${dayName} ${timeStr})${tz}`
       }
       if (plan.cadence_type === 'monthly') {
-        return `Monthly (Day ${d} at ${timeStr})${tz}`
+        return `Monthly (Day ${parsed.presetMonthDay} at ${timeStr})${tz}`
       }
       return plan.cron_expression
     },

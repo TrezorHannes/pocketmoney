@@ -129,3 +129,16 @@ async def m004_timestamps_in_utc(db: Connection):
             executed_at = (executed_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE 'UTC';
         """
     )
+
+
+async def m005_add_plan_labels(db: Connection):
+    """
+    Add plan-level payment labels (`labels`) JSON array column to plans table.
+    """
+    await db.execute(
+        f"""
+        ALTER TABLE {db.references_schema}plans
+        ADD COLUMN labels TEXT DEFAULT '[]';
+        """
+    )
+

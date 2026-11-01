@@ -1,11 +1,60 @@
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
+
+LABEL_PATTERN = re.compile(r"^[A-Za-z0-9 ._-]{1,100}$")
+MAX_PLAN_LABELS = 20
+
+
+def normalize_plan_labels(
+    raw: Any,
+    *,
+    allow_none: bool = False,
+    validate_chars: bool = True,
+) -> Optional[List[str]]:
+    if raw is None:
+        return None if allow_none else []
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return []
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise ValueError("labels must be valid JSON array") from exc
+        if isinstance(parsed, dict) and not parsed:
+            return []
+        raw = parsed
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("labels must be a list of strings")
+
+    cleaned: List[str] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, str):
+            raise ValueError("Each label must be a string")
+        name = entry.strip()
+        if not name:
+            continue
+        if validate_chars and not LABEL_PATTERN.fullmatch(name):
+            raise ValueError(
+                f"Invalid label '{name}'. Use letters, digits, spaces, '.', '_', or '-' (max 100 chars)."
+            )
+        if name not in seen:
+            seen.add(name)
+            cleaned.append(name)
+
+    if validate_chars and len(cleaned) > MAX_PLAN_LABELS:
+        raise ValueError(f"At most {MAX_PLAN_LABELS} labels are allowed per plan.")
+
+    return cleaned
 
 
 class CadenceType(str, Enum):
@@ -66,7 +115,13 @@ class PlanCreate(BaseModel):
     max_sat_limit: Optional[int] = Field(default=None, description="Max total sat budget per execution")
     low_balance_threshold: int = Field(default=0, description="Low balance warning threshold in sats")
     telegram_chat_id: Optional[str] = Field(default=None, description="Optional plan-specific chat ID")
+    labels: List[str] = Field(default_factory=list, description="Optional LNbits payment labels applied to all plan payouts")
     items: List[ItemCreate] = Field(default_factory=list)
+
+    @validator("labels", pre=True)
+    def _validate_create_labels(cls, v: Any) -> List[str]:
+        res = normalize_plan_labels(v, allow_none=False, validate_chars=True)
+        return res or []
 
 
 class PlanUpdate(BaseModel):
@@ -79,7 +134,12 @@ class PlanUpdate(BaseModel):
     max_sat_limit: Optional[int] = None
     low_balance_threshold: Optional[int] = None
     telegram_chat_id: Optional[str] = None
+    labels: Optional[List[str]] = None
     items: Optional[List[ItemCreate]] = None
+
+    @validator("labels", pre=True)
+    def _validate_update_labels(cls, v: Any) -> Optional[List[str]]:
+        return normalize_plan_labels(v, allow_none=True, validate_chars=True)
 
 
 class Plan(BaseModel):
@@ -95,10 +155,16 @@ class Plan(BaseModel):
     webhook_token: str
     low_balance_threshold: int = 0
     telegram_chat_id: Optional[str] = None
+    labels: List[str] = Field(default_factory=list)
     next_run_at: datetime
     last_run_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     items: List[Item] = Field(default_factory=list)
+
+    @validator("labels", pre=True)
+    def _validate_db_labels(cls, v: Any) -> List[str]:
+        res = normalize_plan_labels(v, allow_none=False, validate_chars=False)
+        return res or []
 
 
 class Execution(BaseModel):

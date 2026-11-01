@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import zoneinfo
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -7,9 +8,24 @@ from typing import Any, List, Optional
 
 import httpx
 from lnbits.core.crud import get_wallet
-from lnbits.core.services import create_invoice, get_pr_from_lnurl, pay_invoice
+from lnbits.core.models.lnurl import CreateLnurlPayment
+from lnbits.core.services import create_invoice, pay_invoice
+from lnbits.core.services.lnurl import fetch_lnurl_pay_request
+from lnbits.core.services.lnurl import handle as lnurl_handle
+from lnbits.settings import settings as lnbits_settings
 from lnbits.utils.exchange_rates import fiat_amount_as_satoshis
+from lnurl import LnurlErrorResponse, LnurlPayResponse
+from lnurl.exceptions import LnurlResponseException
 from loguru import logger
+
+try:
+    from lnbits.core.crud import get_account
+    from lnbits.core.models.users import UserLabel
+    from lnbits.core.services.users import update_user_account
+except ImportError:  # pragma: no cover - older LNbits < 1.4 fallback
+    get_account = None  # type: ignore[assignment]
+    UserLabel = None  # type: ignore[assignment]
+    update_user_account = None  # type: ignore[assignment]
 
 from .crud import (
     claim_plan_running,
@@ -128,6 +144,287 @@ async def amount_to_satoshis(amount: Decimal, currency: str) -> int:
     except Exception as exc:
         logger.error(f"Error converting {amount} {curr} to sats: {exc}")
         raise ValueError(f"Could not convert {amount} {curr} to satoshis: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Accounting Memo Formatting & LNURL Resolution
+# ---------------------------------------------------------------------------
+
+# BOLT11 `d` (description) tag encodes length in two 5-bit words (`1023 * 5 // 8` = 639 bytes).
+# LNbits' `memo[:640]` slices 640 characters, which overflows FakeWallet/LND at 640 ASCII chars
+# or >=160 4-byte UTF-8 emojis. Capping at 639 UTF-8 bytes prevents BOLT11 encoding crashes.
+BOLT11_MAX_MEMO_BYTES = 639
+
+_CREATE_INVOICE_SUPPORTS_LABELS = "labels" in inspect.signature(create_invoice).parameters
+_PAY_INVOICE_SUPPORTS_LABELS = "labels" in inspect.signature(pay_invoice).parameters
+
+LABEL_COLOR_PALETTE = (
+    "#1976d2",
+    "#26a69a",
+    "#7e57c2",
+    "#ef6c00",
+    "#ec407a",
+    "#43a047",
+    "#00897b",
+    "#5c6bc0",
+    "#8d6e63",
+    "#0288d1",
+)
+
+
+def default_label_color(name: str) -> str:
+    digest = sum(ord(ch) * (idx + 1) for idx, ch in enumerate(name))
+    return LABEL_COLOR_PALETTE[digest % len(LABEL_COLOR_PALETTE)]
+
+
+async def ensure_account_labels(
+    user_id: str,
+    labels: List[str],
+) -> list[dict[str, Any]]:
+    """
+    Ensure every label in `labels` exists on `account.extra.labels` as a `UserLabel`
+    so LNbits' Wallet UI (`lnbits-payment-list.vue`) renders colored label badges.
+    Preserves any existing label colors and descriptions untouched.
+    """
+    if not labels or not user_id:
+        return []
+    if get_account is None or UserLabel is None or update_user_account is None:
+        return []
+
+    account = await get_account(user_id)
+    if not account or not hasattr(account, "extra") or not hasattr(account.extra, "labels"):
+        return []
+
+    existing_names = {lbl.name for lbl in account.extra.labels}
+    updated = False
+    for raw_name in labels:
+        name = (raw_name or "").strip()
+        if not name or name in existing_names:
+            continue
+        account.extra.labels.append(
+            UserLabel(name=name, color=default_label_color(name))
+        )
+        existing_names.add(name)
+        updated = True
+
+    if updated:
+        await update_user_account(account)
+
+    return [
+        {
+            "name": lbl.name,
+            "color": lbl.color,
+            "description": lbl.description,
+        }
+        for lbl in account.extra.labels
+    ]
+
+
+def _sanitize_memo_part(value: str) -> str:
+    """Collapse control characters, newlines, and tabs into single spaces for CSV safety."""
+    if not value:
+        return ""
+    cleaned = "".join(ch if ch.isprintable() else " " for ch in value)
+    return " ".join(cleaned.split())
+
+
+def _utf8_truncate(text: str, max_chars: int, max_utf8_bytes: int) -> str:
+    """Truncate `text` to fit both `max_chars` and `max_utf8_bytes` without splitting code points."""
+    if max_chars <= 0 or max_utf8_bytes <= 0 or not text:
+        return ""
+    sliced = text[:max_chars]
+    encoded = sliced.encode("utf-8")
+    if len(encoded) <= max_utf8_bytes:
+        return sliced
+    return encoded[:max_utf8_bytes].decode("utf-8", errors="ignore").rstrip()
+
+
+def _fits_budget(text: str, max_chars: int, max_utf8_bytes: int) -> bool:
+    return len(text) <= max_chars and len(text.encode("utf-8")) <= max_utf8_bytes
+
+
+def build_payment_memo(
+    plan_name: str,
+    label: str,
+    destination: str = "",
+    *,
+    include_destination: bool = True,
+    custom_memo: str = "",
+    include_prefix: bool = False,
+    max_chars: int = BOLT11_MAX_MEMO_BYTES,
+    max_utf8_bytes: int = BOLT11_MAX_MEMO_BYTES,
+) -> str:
+    """
+    Build a human-readable accounting memo from `plan_name`, `label`, and `destination`
+    with progressive 5-tier fallback so character and UTF-8 byte limits are never exceeded.
+    """
+    if max_chars <= 0 or max_utf8_bytes <= 0:
+        return ""
+
+    clean_custom = _sanitize_memo_part(custom_memo)
+    if clean_custom:
+        return _utf8_truncate(clean_custom, max_chars, max_utf8_bytes)
+
+    clean_plan = _sanitize_memo_part(plan_name)
+    clean_label = _sanitize_memo_part(label)
+    clean_dest = _sanitize_memo_part(destination)
+
+    show_dest = bool(
+        include_destination
+        and clean_dest
+        and clean_dest.lower() != clean_label.lower()
+    )
+    tier1_dest = (
+        f"{clean_dest[:12]}...{clean_dest[-6:]}"
+        if len(clean_dest) > 48
+        else clean_dest
+    )
+    tier2_dest = (
+        f"{clean_dest[:10]}...{clean_dest[-6:]}"
+        if len(clean_dest) > 19
+        else clean_dest
+    )
+
+    base_pair = (
+        f"{clean_plan} -> {clean_label}"
+        if clean_plan and clean_label
+        else (clean_plan or clean_label)
+    )
+
+    candidates: list[str] = []
+    if show_dest and base_pair:
+        if include_prefix:
+            candidates.append(f"PocketMoney: {base_pair} ({tier1_dest})")
+            if tier2_dest != tier1_dest:
+                candidates.append(f"PocketMoney: {base_pair} ({tier2_dest})")
+        candidates.append(f"{base_pair} ({tier1_dest})")
+        if tier2_dest != tier1_dest:
+            candidates.append(f"{base_pair} ({tier2_dest})")
+
+    if base_pair:
+        if include_prefix:
+            candidates.append(f"PocketMoney: {base_pair}")
+        candidates.append(base_pair)
+
+    for candidate in candidates:
+        if _fits_budget(candidate, max_chars, max_utf8_bytes):
+            return candidate
+
+    # Tier 5: Shrink plan_name first while keeping recipient label intact so
+    # multiple batch payouts executed at the same timestamp stay distinguishable.
+    if clean_plan and clean_label:
+        suffix = f"... -> {clean_label}"
+        rem_chars = max_chars - len(suffix)
+        rem_bytes = max_utf8_bytes - len(suffix.encode("utf-8"))
+        if rem_chars >= 1 and rem_bytes >= 1:
+            short_plan = _utf8_truncate(clean_plan, rem_chars, rem_bytes)
+            if short_plan:
+                return f"{short_plan}{suffix}"
+
+    if clean_label:
+        return _utf8_truncate(clean_label, max_chars, max_utf8_bytes)
+    return _utf8_truncate(clean_plan, max_chars, max_utf8_bytes)
+
+
+def _build_sender_extra(
+    plan_id: str,
+    plan_name: str,
+    item: Item,
+    target: str,
+    *,
+    comment: Optional[str] = None,
+    success_action: Optional[str] = None,
+) -> dict[str, Any]:
+    extra: dict[str, Any] = {
+        "tag": "pocketmoney",
+        "app": "PocketMoney",
+        "plan_id": plan_id,
+        "plan_name": plan_name,
+        "recipient_label": item.label,
+        "destination": target,
+    }
+    curr = (item.currency or "SAT").upper().strip()
+    if curr not in {"SAT", "SATS", "SATOSHI", "SATOSHIS"}:
+        extra["fiat_currency"] = curr
+        extra["fiat_amount"] = float(item.amount)
+    if comment:
+        extra["comment"] = comment
+    if success_action:
+        extra["success_action"] = success_action
+    return extra
+
+
+async def _resolve_lnurl_payment(
+    target: str,
+    amount_msat: int,
+    plan_name: str,
+    label: str,
+    custom_memo: str = "",
+) -> tuple[str, Optional[str], Optional[str]]:
+    """
+    Resolve an external Lightning Address or LNURL-pay endpoint in two steps:
+    1. Fetch pay metadata (`lnurl_handle`) to inspect `res.commentAllowed`.
+    2. Fit `comment` to `res.commentAllowed` (or omit when 0/None) and request
+       the BOLT11 invoice, retrying once with `comment=None` if a non-compliant
+       remote server rejects the comment parameter.
+    """
+    lookup = (
+        target.lower()
+        if "@" in target and not target.lower().startswith("lnurl")
+        else target
+    )
+    res = await lnurl_handle(lookup, user_agent=lnbits_settings.user_agent, timeout=10)
+    if isinstance(res, LnurlErrorResponse):
+        raise LnurlResponseException(res.reason)
+    if not isinstance(res, LnurlPayResponse):
+        raise LnurlResponseException(
+            "Invalid LNURL response. Expected LnurlPayResponse."
+        )
+
+    comment_allowed = int(res.commentAllowed or 0)
+    lnurl_comment: Optional[str] = None
+    if comment_allowed > 0:
+        fitted = build_payment_memo(
+            plan_name,
+            label,
+            target,
+            include_destination=True,
+            custom_memo=custom_memo,
+            include_prefix=True,
+            max_chars=comment_allowed,
+            max_utf8_bytes=BOLT11_MAX_MEMO_BYTES,
+        )
+        lnurl_comment = fitted or None
+
+    req_data = CreateLnurlPayment(
+        res=res,
+        amount=amount_msat,
+        comment=lnurl_comment,
+    )
+    try:
+        _, action_res = await fetch_lnurl_pay_request(req_data)
+    except LnurlResponseException as exc:
+        if lnurl_comment is None:
+            raise
+        logger.warning(
+            f"LNURL callback rejected comment for {target} ({exc}); retrying without comment."
+        )
+        lnurl_comment = None
+        req_data_retry = CreateLnurlPayment(
+            res=res,
+            amount=amount_msat,
+            comment=None,
+        )
+        _, action_res = await fetch_lnurl_pay_request(req_data_retry)
+
+    success_action_json: Optional[str] = None
+    if getattr(action_res, "successAction", None):
+        sa = action_res.successAction
+        success_action_json = (
+            sa.model_dump_json() if hasattr(sa, "model_dump_json") else sa.json()
+        )
+
+    return str(action_res.pr), lnurl_comment, success_action_json
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +786,13 @@ async def _execute_plan_inner(
         )
 
     # Stage 3: Execute payments
+    plan_labels = list(plan.labels or [])
+    if plan_labels and wallet.user:
+        try:
+            await ensure_account_labels(wallet.user, plan_labels)
+        except Exception as label_err:
+            logger.warning(f"Could not sync plan labels to user account: {label_err}")
+
     details: list[dict[str, Any]] = []
     total_spent_sats = 0
     total_fees_msat = 0
@@ -502,10 +806,12 @@ async def _execute_plan_inner(
     ]
 
     for item, sats in item_conversions:
+        target = item.recipient.strip()
         item_detail: dict[str, Any] = {
             "item_id": item.id,
             "label": item.label,
             "recipient": item.recipient,
+            "memo": "",
             "amount_fiat": float(item.amount),
             "currency": item.currency,
             "amount_sats": sats,
@@ -515,9 +821,6 @@ async def _execute_plan_inner(
             "error": None,
         }
 
-        memo = item.memo or f"PocketMoney: {plan.name} -> {item.label}"
-        target = item.recipient.strip()
-
         try:
             if target == plan.wallet_id:
                 raise ValueError("Cannot send internal payment to the same funding wallet")
@@ -525,18 +828,59 @@ async def _execute_plan_inner(
             # Check if target is an internal wallet
             dest_wallet = await get_wallet(target)
             if dest_wallet:
+                is_same_user = dest_wallet.user == wallet.user
+                receiver_memo = build_payment_memo(
+                    plan.name,
+                    item.label,
+                    target,
+                    include_destination=False,
+                    custom_memo=item.memo,
+                    include_prefix=False,
+                )
+                sender_memo = (
+                    receiver_memo
+                    if is_same_user
+                    else build_payment_memo(
+                        plan.name,
+                        item.label,
+                        target,
+                        include_destination=True,
+                        custom_memo=item.memo,
+                        include_prefix=False,
+                    )
+                )
+                item_detail["memo"] = sender_memo
+
+                receiver_extra = (
+                    _build_sender_extra(plan.id, plan.name, item, target)
+                    if is_same_user
+                    else None
+                )
+                sender_extra = _build_sender_extra(plan.id, plan.name, item, target)
+
                 # Internal zero-fee instant transfer
                 logger.debug(f"Executing internal transfer to {item.label} ({target}) for {sats} sats")
+                inv_kwargs: dict[str, Any] = {}
+                if _CREATE_INVOICE_SUPPORTS_LABELS and is_same_user and plan_labels:
+                    inv_kwargs["labels"] = plan_labels
                 inv_res = await create_invoice(
                     wallet_id=target,
                     amount=sats,
-                    memo=memo,
+                    memo=receiver_memo,
+                    extra=receiver_extra,
                     internal=True,
+                    **inv_kwargs,
                 )
                 bolt11 = inv_res.bolt11 if hasattr(inv_res, "bolt11") else inv_res[1]
+                pay_kwargs: dict[str, Any] = {}
+                if _PAY_INVOICE_SUPPORTS_LABELS and plan_labels:
+                    pay_kwargs["labels"] = plan_labels
                 payment = await pay_invoice(
                     wallet_id=plan.wallet_id,
                     payment_request=bolt11,
+                    description=sender_memo,
+                    extra=sender_extra,
+                    **pay_kwargs,
                 )
                 payment_hash = payment.payment_hash if hasattr(payment, "payment_hash") else str(payment)
                 fee_msat = getattr(payment, "fee", 0) or 0
@@ -551,15 +895,41 @@ async def _execute_plan_inner(
                 )
             else:
                 # External Lightning Address or LNURL-pay
-                logger.debug(f"Resolving external payment to {item.label} ({target}) for {sats} sats")
-                bolt11 = await get_pr_from_lnurl(
+                sender_memo = build_payment_memo(
+                    plan.name,
+                    item.label,
                     target,
-                    amount_msat=sats * 1000,
-                    comment=memo,
+                    include_destination=True,
+                    custom_memo=item.memo,
+                    include_prefix=False,
                 )
+                item_detail["memo"] = sender_memo
+
+                logger.debug(f"Resolving external payment to {item.label} ({target}) for {sats} sats")
+                bolt11, lnurl_comment, success_action = await _resolve_lnurl_payment(
+                    target=target,
+                    amount_msat=sats * 1000,
+                    plan_name=plan.name,
+                    label=item.label,
+                    custom_memo=item.memo,
+                )
+                sender_extra = _build_sender_extra(
+                    plan.id,
+                    plan.name,
+                    item,
+                    target,
+                    comment=lnurl_comment,
+                    success_action=success_action,
+                )
+                pay_kwargs = {}
+                if _PAY_INVOICE_SUPPORTS_LABELS and plan_labels:
+                    pay_kwargs["labels"] = plan_labels
                 payment = await pay_invoice(
                     wallet_id=plan.wallet_id,
                     payment_request=bolt11,
+                    description=sender_memo,
+                    extra=sender_extra,
+                    **pay_kwargs,
                 )
                 payment_hash = payment.payment_hash if hasattr(payment, "payment_hash") else str(payment)
                 fee_msat = getattr(payment, "fee", 0) or 0

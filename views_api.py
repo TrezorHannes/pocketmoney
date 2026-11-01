@@ -35,6 +35,7 @@ from .models import (
 )
 from .services import (
     calculate_next_run,
+    ensure_account_labels,
     execute_plan,
     send_telegram_alert,
     simulate_plan,
@@ -131,7 +132,15 @@ async def api_create_plan(
             data.cron_expression,
             data.timezone,
         )
-        return await create_plan(wallet.wallet.id, data, next_run)
+        created = await create_plan(wallet.wallet.id, data, next_run)
+        if created.labels and wallet.wallet.user:
+            await ensure_account_labels(wallet.wallet.user, created.labels)
+        return created
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         logger.error(f"Failed to create plan: {exc}")
         raise HTTPException(
@@ -171,18 +180,26 @@ async def api_update_plan(
 
     _validate_plan_items_not_self(data.items, wallet.wallet.id)
 
-    next_run = None
-    if data.cadence_type or data.cron_expression or data.timezone:
-        cron_expr = data.cron_expression or plan.cron_expression
-        tz = data.timezone or plan.timezone
-        next_run = calculate_next_run(
-            cron_expr,
-            tz,
-        )
+    try:
+        next_run = None
+        if data.cadence_type or data.cron_expression or data.timezone:
+            cron_expr = data.cron_expression or plan.cron_expression
+            tz = data.timezone or plan.timezone
+            next_run = calculate_next_run(
+                cron_expr,
+                tz,
+            )
 
-    updated = await update_plan(plan_id, data, next_run)
-    assert updated, "Update failed"
-    return updated
+        updated = await update_plan(plan_id, data, next_run)
+        assert updated, "Update failed"
+        if updated.labels and wallet.wallet.user:
+            await ensure_account_labels(wallet.wallet.user, updated.labels)
+        return updated
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @pocketmoney_api_router.delete(
