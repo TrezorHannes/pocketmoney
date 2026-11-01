@@ -237,12 +237,27 @@
               </q-td>
             </template>
 
-            <!-- Plan Name & Description -->
+            <!-- Plan Name, Description & Labels -->
             <template v-slot:body-cell-name="props">
               <q-td :props="props">
                 <div class="text-weight-bold">{{ props.row.name }}</div>
                 <div class="text-caption text-grey" v-if="props.row.description">
                   {{ props.row.description }}
+                </div>
+                <div v-if="props.row.labels && props.row.labels.length" class="row items-center q-gutter-xs q-mt-xs">
+                  <q-badge
+                    v-for="lbl in props.row.labels"
+                    :key="lbl"
+                    rounded
+                    :style="{
+                      backgroundColor: getLabelColor(lbl),
+                      color: isLightLabelColor(getLabelColor(lbl)) ? '#111111' : '#ffffff'
+                    }"
+                    class="q-px-sm"
+                  >
+                    <q-icon name="local_offer" size="10px" class="q-mr-xs"></q-icon>
+                    <span>{{ lbl }}</span>
+                  </q-badge>
                 </div>
               </q-td>
             </template>
@@ -654,11 +669,11 @@
   "name": "Kids Weekly Allowance",
   "cadence_type": "weekly",
   "cron_expression": "0 9 * * 5",
+  "labels": ["allowance", "family"],
   "items": [
     {
       "label": "Alice",
       "recipient": "alice@getalby.com",
-      "recipient_type": "lnurl",
       "amount": 5.0,
       "currency": "EUR"
     }
@@ -666,8 +681,8 @@
 }</pre>
                         <div class="text-weight-bold q-mt-xs">Curl example:</div>
                         <div class="row items-center q-gutter-x-xs q-mt-xs">
-                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}" -H "Content-Type: application/json" -d '{"name":"Kids Allowance","cadence_type":"weekly","cron_expression":"0 9 * * 5","items":[{"label":"Alice","recipient":"alice@getalby.com","recipient_type":"lnurl","amount":5,"currency":"EUR"}]}'</code>
-                          <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/plans -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot; -H &quot;Content-Type: application/json&quot; -d \'{\&quot;name\&quot;:\&quot;Kids Allowance\&quot;,\&quot;cadence_type\&quot;:\&quot;weekly\&quot;,\&quot;cron_expression\&quot;:\&quot;0 9 * * 5\&quot;,\&quot;items\&quot;:[{\&quot;label\&quot;:\&quot;Alice\&quot;,\&quot;recipient\&quot;:\&quot;alice@getalby.com\&quot;,\&quot;recipient_type\&quot;:\&quot;lnurl\&quot;,\&quot;amount\&quot;:5,\&quot;currency\&quot;:\&quot;EUR\&quot;}]}\'')">
+                          <code class="col q-pa-xs rounded-borders pm-code-block" style="word-break: break-all;">curl -X POST {{ locationOrigin }}/pocketmoney/api/v1/plans -H "X-Api-Key: {{ activeWalletAdminKey || '&lt;admin_key&gt;' }}" -H "Content-Type: application/json" -d '{"name":"Kids Allowance","cadence_type":"weekly","cron_expression":"0 9 * * 5","labels":["allowance"],"items":[{"label":"Alice","recipient":"alice@getalby.com","amount":5,"currency":"EUR"}]}'</code>
+                          <q-btn flat round dense size="xs" icon="content_copy" @click="copyCurl('curl -X POST ' + locationOrigin + '/pocketmoney/api/v1/plans -H &quot;X-Api-Key: ' + (activeWalletAdminKey || '<admin_key>') + '&quot; -H &quot;Content-Type: application/json&quot; -d \'{\&quot;name\&quot;:\&quot;Kids Allowance\&quot;,\&quot;cadence_type\&quot;:\&quot;weekly\&quot;,\&quot;cron_expression\&quot;:\&quot;0 9 * * 5\&quot;,\&quot;labels\&quot;:[\&quot;allowance\&quot;],\&quot;items\&quot;:[{\&quot;label\&quot;:\&quot;Alice\&quot;,\&quot;recipient\&quot;:\&quot;alice@getalby.com\&quot;,\&quot;amount\&quot;:5,\&quot;currency\&quot;:\&quot;EUR\&quot;}]}\'')">
                             <q-tooltip>Copy curl command</q-tooltip>
                           </q-btn>
                         </div>
@@ -849,6 +864,46 @@
           </div>
         </div>
 
+        <!-- Plan-Level Payment Labels -->
+        <div class="row q-col-gutter-md">
+          <div class="col-12">
+            <q-select
+              filled
+              dense
+              multiple
+              use-chips
+              use-input
+              clearable
+              input-debounce="0"
+              v-model="planDialog.data.labels"
+              :options="planDialog.filteredLabelOptions"
+              @filter="filterPlanLabels"
+              @new-value="onCreatePlanLabel"
+              label="Payment Labels (Optional)"
+              hint="Applied to every transaction in this plan on your LNbits wallet ledger. Type a label and press Enter, or select existing labels."
+            >
+              <template v-slot:prepend>
+                <q-icon name="local_offer" size="18px"></q-icon>
+              </template>
+              <template v-slot:selected-item="scope">
+                <q-chip
+                  removable
+                  dense
+                  @remove="scope.removeAtIndex(scope.index)"
+                  :tabindex="scope.tabindex"
+                  :style="{
+                    backgroundColor: getLabelColor(scope.opt),
+                    color: isLightLabelColor(getLabelColor(scope.opt)) ? '#111111' : '#ffffff'
+                  }"
+                  class="q-ma-xs"
+                >
+                  {{ scope.opt }}
+                </q-chip>
+              </template>
+            </q-select>
+          </div>
+        </div>
+
         <!-- Schedule Section -->
         <q-card flat bordered class="q-pa-md" :class="$q.dark.isActive ? 'bg-grey-10' : 'bg-grey-2'">
           <div class="row items-center justify-between q-mb-sm">
@@ -924,6 +979,7 @@
                 max="31"
                 v-model.number="planDialog.presetMonthDay"
                 label="Day of Month"
+                :rules="[val => (val >= 1 && val <= 31) || 'Day must be between 1 and 31']"
                 @update:model-value="updateCronFromPresets"
               ></q-input>
             </div>
@@ -1321,6 +1377,7 @@
         :rows="detailsDialog.data.details || []"
         :columns="[
           { name: 'label', label: 'Recipient', field: 'label', align: 'left' },
+          { name: 'memo', label: 'Memo', field: row => row.memo || '-', align: 'left' },
           { name: 'amount', label: 'Amount', field: row => row.amount_fiat + ' ' + row.currency, align: 'left' },
           { name: 'amount_sats', label: 'Sats', field: 'amount_sats', align: 'right' },
           { name: 'status', label: 'Status', field: 'status', align: 'center' }

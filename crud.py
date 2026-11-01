@@ -38,6 +38,22 @@ def _utc_ts(key: str) -> str:
     return f"({db.timestamp_placeholder(key)} AT TIME ZONE 'UTC')"
 
 
+def _html_safe_json_dumps(value: Any) -> str:
+    """Serialize `value` to RFC 8259 JSON with `<`, `>`, and `&` escaped.
+
+    `lnbits.db.Connection.rewrite_values` strips `<.*?>` and HTML character
+    entities from every raw string parameter passed to `db.execute(...)`.
+    Unicode-escaping `<`, `>`, and `&` keeps serialized JSON payloads immune to
+    cross-key regex stripping while decoding identically via `json.loads(...)`.
+    """
+    return (
+        json.dumps(value)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Plans CRUD
 # ---------------------------------------------------------------------------
@@ -51,11 +67,11 @@ async def create_plan(wallet_id: str, data: PlanCreate, next_run_at: datetime) -
         INSERT INTO {db.references_schema}plans (
             id, wallet_id, name, description, cadence_type, cron_expression,
             timezone, is_active, max_sat_limit, webhook_token,
-            low_balance_threshold, telegram_chat_id, next_run_at
+            low_balance_threshold, telegram_chat_id, labels, next_run_at
         ) VALUES (
             :id, :wallet_id, :name, :description, :cadence_type, :cron_expression,
             :timezone, :is_active, :max_sat_limit, :webhook_token,
-            :low_balance_threshold, :telegram_chat_id,
+            :low_balance_threshold, :telegram_chat_id, :labels,
             {_utc_ts("next_run_at")}
         )
         """,
@@ -72,6 +88,7 @@ async def create_plan(wallet_id: str, data: PlanCreate, next_run_at: datetime) -
             "webhook_token": webhook_token,
             "low_balance_threshold": data.low_balance_threshold,
             "telegram_chat_id": data.telegram_chat_id,
+            "labels": _html_safe_json_dumps(data.labels or []),
             "next_run_at": next_run_at,
         },
     )
@@ -146,6 +163,12 @@ async def update_plan(plan_id: str, data: PlanUpdate, next_run_at: Optional[date
     if not existing:
         return None
 
+    fields_set = getattr(
+        data,
+        "model_fields_set",
+        getattr(data, "__fields_set__", set()),
+    )
+
     fields: dict[str, Any] = {}
     if data.name is not None:
         fields["name"] = data.name
@@ -159,12 +182,14 @@ async def update_plan(plan_id: str, data: PlanUpdate, next_run_at: Optional[date
         fields["timezone"] = data.timezone
     if data.is_active is not None:
         fields["is_active"] = data.is_active
-    if data.max_sat_limit is not None:
+    if "max_sat_limit" in fields_set or data.max_sat_limit is not None:
         fields["max_sat_limit"] = data.max_sat_limit
     if data.low_balance_threshold is not None:
         fields["low_balance_threshold"] = data.low_balance_threshold
-    if data.telegram_chat_id is not None:
+    if "telegram_chat_id" in fields_set or data.telegram_chat_id is not None:
         fields["telegram_chat_id"] = data.telegram_chat_id
+    if "labels" in fields_set or data.labels is not None:
+        fields["labels"] = _html_safe_json_dumps(data.labels or [])
     if next_run_at is not None:
         fields["next_run_at"] = next_run_at
 
@@ -332,7 +357,7 @@ async def create_execution(
     error_message: Optional[str] = None,
 ) -> Execution:
     exec_id = urlsafe_short_hash()
-    details_json = json.dumps(details)
+    details_json = _html_safe_json_dumps(details)
 
     await db.execute(
         f"""
