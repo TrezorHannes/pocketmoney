@@ -876,7 +876,8 @@
               clearable
               input-debounce="0"
               v-model="planDialog.data.labels"
-              :options="accountLabelOptions"
+              :options="planDialog.filteredLabelOptions"
+              @filter="filterPlanLabels"
               @new-value="onCreatePlanLabel"
               label="Payment Labels (Optional)"
               hint="Applied to every transaction in this plan on your LNbits wallet ledger. Type a label and press Enter, or select existing labels."

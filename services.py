@@ -19,13 +19,12 @@ from lnurl.exceptions import LnurlResponseException
 from loguru import logger
 
 try:
-    from lnbits.core.crud import get_account
+    from lnbits.core.crud import get_account, update_account
     from lnbits.core.models.users import UserLabel
-    from lnbits.core.services.users import update_user_account
 except ImportError:  # pragma: no cover - older LNbits < 1.4 fallback
     get_account = None  # type: ignore[assignment]
+    update_account = None  # type: ignore[assignment]
     UserLabel = None  # type: ignore[assignment]
-    update_user_account = None  # type: ignore[assignment]
 
 from .crud import (
     claim_plan_running,
@@ -188,7 +187,7 @@ async def ensure_account_labels(
     """
     if not labels or not user_id:
         return []
-    if get_account is None or UserLabel is None or update_user_account is None:
+    if get_account is None or UserLabel is None or update_account is None:
         return []
 
     account = await get_account(user_id)
@@ -208,7 +207,7 @@ async def ensure_account_labels(
         updated = True
 
     if updated:
-        await update_user_account(account)
+        await update_account(account)
 
     return [
         {

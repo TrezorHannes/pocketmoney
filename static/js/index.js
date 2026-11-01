@@ -119,6 +119,7 @@ window.app = Vue.createApp({
         presetWeekday: '5', // Friday
         presetMonthDay: 1,
         presetTime: '09:00',
+        filteredLabelOptions: [],
         data: {
           id: null,
           name: '',
@@ -342,6 +343,22 @@ window.app = Vue.createApp({
       return (r * 299 + g * 587 + b * 114) / 1000 > 165
     },
 
+    filterPlanLabels(val, update) {
+      update(
+        () => {
+          const needle = String(val || '').trim().toLowerCase()
+          this.planDialog.filteredLabelOptions = needle
+            ? this.accountLabelOptions.filter(opt => opt.toLowerCase().includes(needle))
+            : [...this.accountLabelOptions]
+        },
+        ref => {
+          if (val !== '' && ref && typeof ref.setOptionIndex === 'function') {
+            ref.setOptionIndex(-1)
+          }
+        },
+      )
+    },
+
     onCreatePlanLabel(inputValue, doneFn) {
       const trimmed = String(inputValue || '').trim()
       if (!trimmed) return
@@ -361,6 +378,12 @@ window.app = Vue.createApp({
         return
       }
       doneFn(trimmed, 'add-unique')
+      if (
+        Array.isArray(this.planDialog.filteredLabelOptions) &&
+        !this.planDialog.filteredLabelOptions.includes(trimmed)
+      ) {
+        this.planDialog.filteredLabelOptions.push(trimmed)
+      }
     },
 
     syncLabelsToUserExtra(labels) {
@@ -460,6 +483,7 @@ window.app = Vue.createApp({
         this.planDialog.presetMonthDay = 1
         this.planDialog.presetTime = '09:00'
       }
+      this.planDialog.filteredLabelOptions = [...this.accountLabelOptions]
       this.planDialog.show = true
     },
 

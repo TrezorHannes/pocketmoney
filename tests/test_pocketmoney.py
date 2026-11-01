@@ -1310,6 +1310,38 @@ ctx.selectedWallet = 'w-main';
   const syncedLabel = ctx.g.user.extra.labels.find(l => l.name === 'vps-ops');
   assert(syncedLabel, 'Expected vps-ops synced into g.user.extra.labels');
   assert.strictEqual(syncedLabel.color, {json.dumps(expected_color)});
+
+  // 7. Quasar QSelect @filter resets optionIndex (-1) when typing a second label so Enter adds instead of toggling off options[0]
+  ctx.openPlanDialog({{
+    id: 'plan-multi-label',
+    name: 'Multi Label Plan',
+    cadence_type: 'weekly',
+    cron_expression: '0 9 * * 5',
+    timezone: 'UTC',
+    labels: ['existing-lbl'],
+    items: []
+  }});
+  assert(Array.isArray(ctx.planDialog.filteredLabelOptions), 'Expected filteredLabelOptions array');
+  assert(ctx.planDialog.filteredLabelOptions.includes('existing-lbl'));
+  let updatedOptionIndex = 0;
+  ctx.filterPlanLabels(
+    'second-lbl',
+    (fn, afterFn) => {{
+      fn();
+      afterFn({{ setOptionIndex(idx) {{ updatedOptionIndex = idx; }} }});
+    }},
+  );
+  assert.strictEqual(updatedOptionIndex, -1, 'Expected optionIndex reset to -1 when typing non-empty label');
+  assert.deepStrictEqual(Array.from(ctx.planDialog.filteredLabelOptions), []);
+
+  ctx.filterPlanLabels(
+    'VPS',
+    (fn, afterFn) => {{
+      fn();
+      afterFn({{ setOptionIndex(idx) {{ updatedOptionIndex = idx; }} }});
+    }},
+  );
+  assert.deepStrictEqual(Array.from(ctx.planDialog.filteredLabelOptions), ['vps', 'vps-ops']);
 }})().catch(err => {{
   console.error(err);
   process.exit(1);
@@ -1317,6 +1349,181 @@ ctx.selectedWallet = 'w-main';
 """
     proc = subprocess.run([node_bin, "-e", harness], capture_output=True, text=True, check=False)
     assert proc.returncode == 0, f"Frontend JS harness failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+
+    index_html = (Path(__file__).resolve().parent.parent / "templates" / "pocketmoney" / "index.html").read_text(encoding="utf-8")
+    assert '@filter="filterPlanLabels"' in index_html
+    assert ':options="planDialog.filteredLabelOptions"' in index_html
+
+
+@pytest.mark.anyio
+async def test_execution_details_and_plan_labels_survive_lnbits_rewrite_values_angle_brackets():
+    """
+    Regression test for lnbits.db.Connection.rewrite_values stripping `<.*?>` and HTML entities
+    across serialized JSON strings when structured `->` memos coexist with `<` or `&amp;` in any field.
+    """
+    from lnbits.core.crud import create_account, create_wallet
+    from pocketmoney.crud import (
+        create_execution,
+        create_plan,
+        get_executions,
+        get_plan,
+        update_plan,
+    )
+    from pocketmoney.models import CadenceType, ItemCreate, PlanCreate, PlanUpdate
+    from pocketmoney.services import calculate_next_run
+
+    acc = await create_account()
+    wallet = await create_wallet(user_id=acc.id, wallet_name="Rewrite Guard Funding")
+
+    next_run = calculate_next_run("0 0 1 * *", "UTC")
+    plan = await create_plan(
+        wallet.id,
+        PlanCreate(
+            name="Monthly Server Hosting",
+            cadence_type=CadenceType.MONTHLY,
+            cron_expression="0 0 1 * *",
+            timezone="UTC",
+            labels=["hosting", "ops"],
+            items=[
+                ItemCreate(
+                    label="Provider A <Primary>",
+                    recipient="billing@pay.example.com",
+                    amount=Decimal("10"),
+                    currency="SAT",
+                    memo="Budget < 50 EUR &amp; VAT",
+                ),
+            ],
+        ),
+        next_run,
+    )
+    updated = await update_plan(plan.id, PlanUpdate(labels=["hosting", "tier-1"]))
+    assert updated is not None
+    fetched_plan = await get_plan(plan.id)
+    assert fetched_plan is not None
+    assert fetched_plan.labels == ["hosting", "tier-1"]
+
+    raw_details = [
+        {
+            "item_id": "item-1",
+            "label": "Provider A <Primary",
+            "recipient": "billing@pay.example.com",
+            "memo": "Monthly Server Hosting -> Provider A (billing@pay.example.com)",
+            "amount_fiat": 10.0,
+            "currency": "USD",
+            "amount_sats": 1000,
+            "fee_msat": 0,
+            "payment_hash": None,
+            "status": "failed",
+            "error": "Upstream gateway error <Response [502]> &amp; retry skipped",
+        },
+        {
+            "item_id": "item-2",
+            "label": "Provider B",
+            "recipient": "ops@pay.example.com",
+            "memo": "Monthly Server Hosting -> Provider B (ops@pay.example.com)",
+            "amount_fiat": 15.0,
+            "currency": "USD",
+            "amount_sats": 1500,
+            "fee_msat": 0,
+            "payment_hash": "hash-item-2",
+            "status": "success",
+            "error": None,
+        },
+    ]
+
+    created_exec = await create_execution(
+        wallet_id=wallet.id,
+        plan_id=plan.id,
+        triggered_by="manual",
+        status="partial",
+        total_sats=1500,
+        total_fees_msat=0,
+        details=raw_details,
+        error_message="Partial failure",
+    )
+    assert len(created_exec.details) == 2
+    assert created_exec.details[0]["status"] == "failed"
+    assert created_exec.details[0]["memo"] == "Monthly Server Hosting -> Provider A (billing@pay.example.com)"
+    assert created_exec.details[0]["error"] == "Upstream gateway error <Response [502]> &amp; retry skipped"
+    assert created_exec.details[1]["status"] == "success"
+    assert created_exec.details[1]["memo"] == "Monthly Server Hosting -> Provider B (ops@pay.example.com)"
+
+    history = await get_executions(wallet.id, plan_id=plan.id)
+    assert len(history) == 1
+    assert history[0].details == raw_details
+
+
+@pytest.mark.anyio
+async def test_plan_api_and_account_labels_handle_legacy_accounts_and_sync_errors(mocker):
+    """
+    Regression test ensuring:
+    1. `ensure_account_labels` persists labels via `update_account` even on legacy LNbits accounts
+       whose fields would fail `Account.validate_fields()` (e.g. legacy 2-char username or non-v4 ID).
+    2. Post-commit failures in `ensure_account_labels` inside `api_create_plan` / `api_update_plan`
+       log a warning and still return the committed Plan (201/200) instead of HTTP 400/500.
+    """
+    from lnbits.core.crud import (
+        create_account,
+        create_wallet,
+        get_account,
+        update_account,
+    )
+    from lnbits.core.models import KeyType, WalletTypeInfo
+    from pocketmoney.crud import get_plans
+    from pocketmoney.models import CadenceType, ItemCreate, PlanCreate, PlanUpdate
+    from pocketmoney.services import ensure_account_labels
+    from pocketmoney.views_api import api_create_plan, api_update_plan
+
+    acc = await create_account()
+    # Simulate a legacy pre-validation LNbits account (2-char username rejected by Account.validate_fields)
+    acc.username = "ab"
+    await update_account(acc)
+
+    synced = await ensure_account_labels(acc.id, ["legacy-safe"])
+    assert any(lbl["name"] == "legacy-safe" for lbl in synced)
+    reloaded = await get_account(acc.id)
+    assert reloaded is not None
+    assert "legacy-safe" in {lbl.name for lbl in reloaded.extra.labels}
+
+    wallet = await create_wallet(user_id=acc.id, wallet_name="API Resilience Wallet")
+    wallet_info = WalletTypeInfo(KeyType.admin, wallet)
+
+    mocker.patch(
+        "pocketmoney.views_api.ensure_account_labels",
+        side_effect=RuntimeError("Simulated core account DB transient failure"),
+    )
+
+    created = await api_create_plan(
+        data=PlanCreate(
+            name="Resilient Create Plan",
+            cadence_type=CadenceType.MONTHLY,
+            cron_expression="0 0 1 * *",
+            timezone="UTC",
+            labels=["resilient-create"],
+            items=[
+                ItemCreate(
+                    label="Provider A",
+                    recipient="billing@pay.example.com",
+                    amount=Decimal("100"),
+                    currency="SAT",
+                )
+            ],
+        ),
+        wallet=wallet_info,
+    )
+    assert created.id
+    assert created.labels == ["resilient-create"]
+    all_plans = await get_plans(wallet.id)
+    assert len(all_plans) == 1
+
+    updated = await api_update_plan(
+        plan_id=created.id,
+        data=PlanUpdate(labels=["resilient-update"]),
+        wallet=wallet_info,
+    )
+    assert updated.id == created.id
+    assert updated.labels == ["resilient-update"]
+
 
 
 

@@ -134,7 +134,12 @@ async def api_create_plan(
         )
         created = await create_plan(wallet.wallet.id, data, next_run)
         if created.labels and wallet.wallet.user:
-            await ensure_account_labels(wallet.wallet.user, created.labels)
+            try:
+                await ensure_account_labels(wallet.wallet.user, created.labels)
+            except Exception as label_err:
+                logger.warning(
+                    f"Could not sync plan labels to user account: {label_err}"
+                )
         return created
     except ValueError as exc:
         raise HTTPException(
@@ -193,12 +198,23 @@ async def api_update_plan(
         updated = await update_plan(plan_id, data, next_run)
         assert updated, "Update failed"
         if updated.labels and wallet.wallet.user:
-            await ensure_account_labels(wallet.wallet.user, updated.labels)
+            try:
+                await ensure_account_labels(wallet.wallet.user, updated.labels)
+            except Exception as label_err:
+                logger.warning(
+                    f"Could not sync plan labels to user account: {label_err}"
+                )
         return updated
     except ValueError as exc:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.error(f"Failed to update plan {plan_id}: {exc}")
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Could not update plan.",
         ) from exc
 
 

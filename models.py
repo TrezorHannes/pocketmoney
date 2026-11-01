@@ -179,6 +179,18 @@ class Execution(BaseModel):
     error_message: Optional[str] = None
     executed_at: Optional[datetime] = None
 
+    @validator("details", pre=True)
+    def _validate_db_details(cls, v: Any) -> List[dict[str, Any]]:
+        if v is None or v == "" or isinstance(v, dict):
+            return []
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+            except ValueError:
+                return []
+            return parsed if isinstance(parsed, list) else []
+        return list(v) if isinstance(v, (list, tuple)) else []
+
 
 class PocketMoneySettings(BaseModel):
     wallet_id: str
